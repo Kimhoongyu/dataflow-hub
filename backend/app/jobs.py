@@ -15,11 +15,12 @@ from sqlalchemy.orm import Session
 from app.auth import current_user
 from app.db import get_db
 from app.models import Job, JobEvent, Project, UploadedFile, User
+from app.observability import UPLOAD_BYTES, UPLOADS
 from app.projects import authorized_tenant
 from app.storage import ObjectNotFound, ObjectStorage, StorageUnavailable, get_storage
 
 router = APIRouter(prefix="/api/tenants/{tenant_id}", tags=["jobs"])
-logger = logging.getLogger("uvicorn.error")
+logger = logging.getLogger("api.jobs")
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 # Multipart framing and form fields add a little on top of the file itself.
 MAX_REQUEST_BYTES = MAX_UPLOAD_BYTES + 64 * 1024
@@ -113,7 +114,7 @@ def create_job(project_id: UUID, request: Request, file: UploadFile = File(), jo
     try:
         storage.upload(blob_name, data)
     except StorageUnavailable:
-        logger.warning("upload_storage_failed request_id=%s", request_id)
+        logger.warning("upload_storage_failed")
         raise HTTPException(503, "파일 저장소에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.")
     db.add_all([
         UploadedFile(id=file_id, tenant_id=tenant_id, project_id=project_id, original_name=name, blob_name=blob_name,
@@ -133,9 +134,12 @@ def create_job(project_id: UUID, request: Request, file: UploadFile = File(), jo
         try:
             storage.delete(blob_name)
         except StorageUnavailable:
-            logger.error("orphan_blob blob_name=%s request_id=%s", blob_name, request_id)
+            logger.error("orphan_blob", extra={"blob_name": blob_name})
         raise
-    logger.info("job_created job_id=%s tenant_id=%s project_id=%s request_id=%s", job_id, tenant_id, project_id, request_id)
+    UPLOADS.labels(job_type).inc()
+    UPLOAD_BYTES.inc(len(data))
+    logger.info("job_created", extra={"job_id": job_id, "tenant_id": tenant_id, "project_id": project_id,
+                                      "job_type": job_type, "size_bytes": len(data)})
     return db.get(Job, job_id)
 
 

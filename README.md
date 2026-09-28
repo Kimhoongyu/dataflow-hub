@@ -15,6 +15,8 @@
 - 재시도(지수 백오프), 멈춘 작업 복구(heartbeat), 여러 Worker 동시 실행
 - 작업 목록·상세·상태 이력 조회, 결과 CSV 다운로드, 대시보드 최근 작업
 - 운영 모니터링 대시보드: 기간별 업로드·성공·실패·성공률·처리 시간, 처리 추이, 프로젝트별 현황, 최근 오류, Worker·대기열 상태
+- JSON 구조화 로그(요청 ID로 API↔Worker 연결), Prometheus 메트릭, 로컬 Prometheus·Grafana, 알림 규칙
+- GitHub Actions CI: 백엔드 테스트(PostgreSQL), 프론트엔드 lint·빌드, 설정 검증, 이미지 빌드
 - 요청 ID(X-Request-ID)를 작업에 저장해 업로드 요청과 로그를 연결
 - Docker Compose 로컬 실행과 별도 DB 기반 통합 테스트
 
@@ -72,6 +74,8 @@ backend/migrations/   Alembic 변경 이력
 backend/tests/        인증·조직 격리·업로드 통합 테스트
 compose.yaml          앱·Worker·DB·S3(SeaweedFS)·마이그레이션, 선택적 테스트 서비스
 deploy/local/         로컬 SeaweedFS S3 인증 설정
+monitoring/           Prometheus 설정·알림 규칙, Grafana 데이터 소스·대시보드
+.github/workflows/    CI
 .env.example          로컬 설정 예시
 ```
 
@@ -228,11 +232,58 @@ Vite 컨테이너는 개발용이며 배포 시 정적 빌드 제공 방식으�
 - **집계 방식:** 인덱스(tenant_id·status, tenant_id·project_id·created_at)를 활용해 요청 시점에 바로 집계합니다.
   데이터가 커지면 일 단위 요약 테이블이나 materialized view로 옮깁니다.
 
+## 로그와 메트릭
+
+**로그**
+- API와 Worker 모두 stdout에 한 줄에 하나씩 JSON으로 출력합니다(ts, level, service, logger, event, request_id, 추가 필드).
+  수집기(Kubernetes, NCP 로그 서비스)가 별도 파싱 규칙 없이 읽을 수 있습니다.
+- 업로드 요청의 X-Request-ID가 jobs.request_id에 저장되고, Worker는 그 작업을 처리하는 동안 같은 request_id로 로그를 남깁니다.
+  request_id 하나로 업로드부터 처리 결과까지 추적할 수 있습니다.
+- API 접근 로그(http_request)에는 경로 템플릿, 상태 코드, 처리 시간을 기록합니다. health와 /metrics 요청은 로그에서 뺍니다.
+- LOG_FORMAT=text로 사람이 읽기 쉬운 형식으로 바꿀 수 있고, LOG_LEVEL로 수준을 조정합니다.
+
+**메트릭**
+
+| 대상 | 경로 | 주요 메트릭 |
+| --- | --- | --- |
+| API | :8000/metrics | http_requests_total{method,route,status}, http_request_duration_seconds, dataflow_uploads_total{job_type}, dataflow_upload_bytes_total |
+| Worker | :9100/metrics | dataflow_jobs_finished_total{job_type,outcome}, dataflow_job_duration_seconds, dataflow_rows_processed_total, dataflow_job_errors_total{error_code}, dataflow_jobs_recovered_total, dataflow_queue_depth, dataflow_oldest_queued_seconds, dataflow_jobs_processing |
+
+- 라벨에는 경로 템플릿(/api/tenants/{tenant_id}/jobs)과 처리 유형만 씁니다. 조직·작업·사용자 ID는 쓰지 않습니다(카디널리티 관리).
+  조직별 분석은 앱 안의 운영 대시보드(DB 집계)가 담당합니다.
+- 대기열 게이지는 모든 Worker가 같은 전역 값을 보고하므로 max()로 집계합니다.
+- /metrics는 클러스터 내부에서만 수집합니다. Ingress는 /api만 외부에 노출합니다.
+
+**로컬 Prometheus·Grafana**
+
+```powershell
+docker compose --profile monitoring up -d
+```
+
+- Prometheus: http://localhost:9090
+- Grafana: http://localhost:3000 — 로그인 없이 보기 가능, 관리자 admin / dataflow-local. "DataFlow Hub 운영" 대시보드가 자동으로 등록됩니다.
+- Worker는 DNS로 찾기 때문에 `--scale worker=N`으로 늘려도 자동으로 수집 대상에 들어갑니다.
+- 알림 규칙([monitoring/prometheus/alerts.yml](monitoring/prometheus/alerts.yml)):
+  - Worker 없음
+  - 10분 넘은 대기
+  - 실패율 10% 초과
+  - 멈춘 작업 복구 발생
+  - API 5xx 5% 초과
+  - API p95 1초 초과
+
+## CI
+
+[.github/workflows/ci.yml](.github/workflows/ci.yml)은 push(main)와 PR마다 실행됩니다.
+
+- **backend:** PostgreSQL 서비스 컨테이너로 pytest를 실행합니다(마이그레이션 적용과 모델 일치 검사 포함).
+- **frontend:** npm ci, lint, build를 실행합니다.
+- **config:** Compose 설정을 검증하고, promtool로 Prometheus 설정과 알림 규칙을 검사합니다.
+- **images:** API·Frontend 이미지를 빌드합니다. NCP Container Registry push는 배포 단계에서 추가합니다.
+
 ## 다음 단계
 
-1. JSON 구조화 로그, Prometheus 메트릭(/metrics: 처리량·처리 시간 histogram·대기열 길이)
-2. GitHub Actions CI (테스트, 이미지 빌드)
-3. Terraform으로 네이버 클라우드(NCP) 배포
+1. 배포용 이미지 정리 (프론트엔드 정적 빌드 + nginx), Kubernetes 매니페스트
+2. Terraform으로 네이버 클라우드(NCP) 배포, CI에서 Container Registry push
 
 | 구성 요소 | 로컬 (Compose) | NCP |
 | --- | --- | --- |
@@ -246,9 +297,8 @@ Vite 컨테이너는 개발용이며 배포 시 정적 빌드 제공 방식으�
 Worker는 대기 작업 수 기준으로 확장합니다(예: KEDA PostgreSQL scaler).
 
 모니터링 확장: 앱 안의 운영 대시보드(DB 집계)는 그대로 두고,
-NKS에 Prometheus / Grafana를 설치해 /metrics를 수집합니다. 서버·DB 인프라 지표와 로그는 NCP 모니터링 서비스로 보냅니다.
-작업 ID·사용자 ID처럼 값이 계속 늘어나는 항목은 Prometheus 라벨로 쓰지 않습니다.
-메트릭 수집과 경보는 아직 구현하지 않았습니다.
+NKS에 Prometheus / Grafana를 설치해 /metrics를 수집하고, 같은 알림 규칙과 대시보드를 사용합니다.
+서버·DB 인프라 지표와 로그는 NCP 모니터링 서비스로 보냅니다.
 
 ## 계정 정보 변경 (로컬 관리자)
 

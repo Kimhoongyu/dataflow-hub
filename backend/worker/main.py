@@ -14,6 +14,7 @@ import threading
 import time
 from uuid import UUID
 
+from prometheus_client import start_http_server
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
@@ -21,7 +22,9 @@ from sqlalchemy.orm import Session, lazyload
 
 from app.db import engine
 from app.models import Job, JobEvent, WorkerHeartbeat
+from app.observability import request_id_var, setup_logging
 from app.storage import ObjectNotFound, ObjectStorage, StorageUnavailable, get_storage
+from worker import metrics
 from worker.processors import PROCESSORS, DataError
 
 logger = logging.getLogger("worker")
@@ -30,6 +33,7 @@ HEARTBEAT_SECONDS = float(os.getenv("WORKER_HEARTBEAT_SECONDS", "10"))
 STALE_SECONDS = int(os.getenv("WORKER_STALE_SECONDS", "60"))
 MAX_ATTEMPTS = int(os.getenv("WORKER_MAX_ATTEMPTS", "3"))
 RETRY_BASE_SECONDS = int(os.getenv("WORKER_RETRY_BASE_SECONDS", "10"))
+METRICS_PORT = int(os.getenv("WORKER_METRICS_PORT", "9100"))
 _KEEP = object()
 
 
@@ -73,8 +77,18 @@ def process_job(db: Session, storage: ObjectStorage, job_id: UUID, worker_id: st
     job = db.get(Job, job_id)
     source, job_type = job.file.blob_name, job.job_type
     result_blob = f"{job.tenant_id}/{job.project_id}/results/{job.id}.csv"
+    # Logs for this job carry the upload request's ID, linking API and worker log lines.
+    token = request_id_var.set(job.request_id)
     # End the read transaction: nothing is locked while the file is processed.
     db.commit()
+    try:
+        _process(db, storage, job_id, worker_id, source, job_type, result_blob)
+    finally:
+        request_id_var.reset(token)
+
+
+def _process(db: Session, storage: ObjectStorage, job_id: UUID, worker_id: str, source: str, job_type: str,
+             result_blob: str) -> None:
     started = time.monotonic()
     result, error, retryable = None, None, False
     try:
@@ -87,7 +101,7 @@ def process_job(db: Session, storage: ObjectStorage, job_id: UUID, worker_id: st
     except StorageUnavailable:
         error, retryable = ("STORAGE_ERROR", "파일 저장소에 연결할 수 없습니다."), True
     except Exception:
-        logger.exception("job_crashed job_id=%s worker_id=%s", job_id, worker_id)
+        logger.exception("job_crashed", extra={"job_id": job_id, "worker_id": worker_id})
         error, retryable = ("INTERNAL", "처리 중 예기치 못한 오류가 발생했습니다."), True
     finish(db, job_id, worker_id, int((time.monotonic() - started) * 1000), result, result_blob, error, retryable)
 
@@ -99,7 +113,7 @@ def finish(db: Session, job_id: UUID, worker_id: str, duration_ms: int, result, 
     if job is None:
         # Recovered by another worker while we were busy; its outcome wins.
         db.rollback()
-        logger.warning("job_ownership_lost job_id=%s worker_id=%s", job_id, worker_id)
+        logger.warning("job_ownership_lost", extra={"job_id": job_id, "worker_id": worker_id})
         return
     job.duration_ms = duration_ms
     if error is None:
@@ -118,10 +132,17 @@ def finish(db: Session, job_id: UUID, worker_id: str, duration_ms: int, result, 
             suffix = f" (최대 {MAX_ATTEMPTS}회 시도 초과)" if retryable else ""
             add_event(db, job, "processing", "failed", f"처리 실패 [{error[0]}]: {error[1]}{suffix}")
     touch(db, worker_id, current_job_id=None, processed=True)
-    status = job.status
+    status, job_type = job.status, job.job_type
     db.commit()
-    logger.info("job_finished job_id=%s worker_id=%s status=%s error_code=%s duration_ms=%s",
-                job_id, worker_id, status, error[0] if error else None, duration_ms)
+    outcome = "retried" if status == "queued" else status
+    metrics.JOBS_FINISHED.labels(job_type, outcome).inc()
+    metrics.JOB_DURATION.labels(job_type).observe(duration_ms / 1000)
+    if error:
+        metrics.JOB_ERRORS.labels(error[0]).inc()
+    else:
+        metrics.ROWS_PROCESSED.labels(job_type).inc(result.rows_in)
+    logger.info("job_finished", extra={"job_id": job_id, "worker_id": worker_id, "job_type": job_type, "status": status,
+                                       "error_code": error[0] if error else None, "duration_ms": duration_ms})
 
 
 def recover_stale(db: Session) -> int:
@@ -139,9 +160,20 @@ def recover_stale(db: Session) -> int:
             job.status, job.finished_at = "failed", func.now()
             job.error_code, job.error_message = "WORKER_LOST", f"{lost}, 최대 {MAX_ATTEMPTS}회 시도 초과"
             add_event(db, job, "processing", "failed", f"처리 실패 [WORKER_LOST]: {job.error_message}")
-        logger.warning("job_recovered job_id=%s dead_worker=%s status=%s", job.id, job.worker_id, job.status)
+        metrics.JOBS_RECOVERED.inc()
+        logger.warning("job_recovered", extra={"job_id": job.id, "dead_worker": job.worker_id, "status": job.status})
     db.execute(delete(WorkerHeartbeat).where(WorkerHeartbeat.last_seen_at < func.now() - timedelta(days=1)))
     return len(jobs)
+
+
+def update_queue_metrics(db: Session) -> None:
+    queued, processing, oldest = db.execute(select(
+        func.count().filter(Job.status == "queued"), func.count().filter(Job.status == "processing"),
+        func.extract("epoch", func.now() - func.min(Job.created_at).filter(Job.status == "queued")),
+    ).where(Job.status.in_(("queued", "processing")))).one()
+    metrics.QUEUE_DEPTH.set(queued)
+    metrics.PROCESSING.set(processing)
+    metrics.OLDEST_QUEUED.set(float(oldest or 0))
 
 
 def run_once(db: Session, storage: ObjectStorage, worker_id: str) -> bool:
@@ -151,7 +183,7 @@ def run_once(db: Session, storage: ObjectStorage, worker_id: str) -> bool:
         return False
     job_id = job.id
     db.commit()
-    logger.info("job_claimed job_id=%s worker_id=%s", job_id, worker_id)
+    logger.info("job_claimed", extra={"job_id": job_id, "worker_id": worker_id})
     process_job(db, storage, job_id, worker_id)
     return True
 
@@ -164,13 +196,12 @@ def heartbeat_loop(worker_id: str, stop: threading.Event) -> None:
                 touch(db, worker_id)
                 db.commit()
         except SQLAlchemyError:
-            logger.warning("heartbeat_failed worker_id=%s", worker_id)
+            logger.warning("heartbeat_failed", extra={"worker_id": worker_id})
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    # Keep SDK chatter (e.g. credential lookups) out of the job log.
-    logging.getLogger("botocore").setLevel(logging.WARNING)
+    setup_logging("worker")
+    start_http_server(METRICS_PORT)
     worker_id = os.getenv("WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -180,7 +211,8 @@ def main() -> None:
         touch(db, worker_id)
         db.commit()
     threading.Thread(target=heartbeat_loop, args=(worker_id, stop), daemon=True).start()
-    logger.info("worker_started worker_id=%s max_attempts=%s stale_seconds=%s", worker_id, MAX_ATTEMPTS, STALE_SECONDS)
+    logger.info("worker_started", extra={"worker_id": worker_id, "max_attempts": MAX_ATTEMPTS,
+                                         "stale_seconds": STALE_SECONDS, "metrics_port": METRICS_PORT})
     last_recovery = 0.0
     while not stop.is_set():
         worked = False
@@ -188,18 +220,19 @@ def main() -> None:
             with Session(engine) as db:
                 if time.monotonic() - last_recovery >= HEARTBEAT_SECONDS:
                     recover_stale(db)
+                    update_queue_metrics(db)
                     db.commit()
                     last_recovery = time.monotonic()
                 worked = run_once(db, storage, worker_id)
         except SQLAlchemyError:
-            logger.exception("worker_db_error worker_id=%s", worker_id)
+            logger.exception("worker_db_error", extra={"worker_id": worker_id})
         if not worked:
             stop.wait(POLL_SECONDS)
     # Graceful stop (SIGTERM from docker/Kubernetes): the current job has finished by now.
     with Session(engine) as db:
         db.execute(delete(WorkerHeartbeat).where(WorkerHeartbeat.worker_id == worker_id))
         db.commit()
-    logger.info("worker_stopped worker_id=%s", worker_id)
+    logger.info("worker_stopped", extra={"worker_id": worker_id})
 
 
 if __name__ == "__main__":

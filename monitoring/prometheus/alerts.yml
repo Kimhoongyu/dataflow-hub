@@ -1,0 +1,43 @@
+# Alert rules shared by the local Prometheus and the cluster deployment.
+groups:
+  - name: dataflow
+    rules:
+      - alert: DataflowWorkerDown
+        expr: absent(up{job="worker"} == 1)
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: 동작 중인 Worker가 없어 작업이 처리되지 않습니다.
+      - alert: DataflowQueueBacklog
+        expr: max(dataflow_oldest_queued_seconds) > 600
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: 10분 넘게 대기 중인 작업이 있습니다 (Worker 확장 필요 여부 확인).
+      - alert: DataflowJobFailureRateHigh
+        expr: |
+          sum(rate(dataflow_jobs_finished_total{outcome="failed"}[15m]))
+            / clamp_min(sum(rate(dataflow_jobs_finished_total{outcome=~"completed|failed"}[15m])), 1e-9) > 0.1
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: 최근 15분 작업 실패율이 10%를 넘었습니다.
+      - alert: DataflowJobsRecovered
+        expr: sum(increase(dataflow_jobs_recovered_total[15m])) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: 응답 없는 Worker의 작업을 복구했습니다 (Worker 재시작·OOM 확인).
+      - alert: ApiErrorRateHigh
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 1e-9) > 0.05
+        for: 5m
+        labels: {severity: critical}
+        annotations:
+          summary: API 5xx 비율이 5%를 넘었습니다.
+      - alert: ApiLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{route!="/metrics"}[5m]))) > 1
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: API p95 응답 시간이 1초를 넘었습니다.
