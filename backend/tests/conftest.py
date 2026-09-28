@@ -12,7 +12,7 @@ from app.auth import password_hasher
 from app.db import engine, get_db
 from app.main import app
 from app.models import Membership, Project, Tenant, User
-from app.storage import BlobNotFound, StorageUnavailable, get_storage
+from app.storage import ObjectNotFound, StorageUnavailable, get_storage
 
 ORIGIN = {"origin": "http://localhost:5173"}
 PASSWORD = "Test-password-2026!"
@@ -70,7 +70,7 @@ class FakeStorage:
         if self.fail:
             raise StorageUnavailable
         if name not in self.blobs:
-            raise BlobNotFound(name)
+            raise ObjectNotFound(name)
         return self.blobs[name]
 
     def delete(self, name):

@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "dataflow-local",
+      "credentials": [{ "accessKey": "dataflow-local", "secretKey": "dataflow-local-secret" }],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}

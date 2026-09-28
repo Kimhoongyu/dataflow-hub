@@ -16,17 +16,20 @@ services:
       retries: 10
       start_period: 10s
 
-  # Local Azure Blob Storage emulator; replaced by a real Storage Account on Azure.
-  azurite:
-    image: mcr.microsoft.com/azure-storage/azurite:3.34.0
-    command: ["azurite-blob", "--blobHost", "0.0.0.0", "--location", "/data", "--skipApiVersionCheck", "--loose"]
+  # Local S3-compatible object storage; replaced by NCP Object Storage when deployed.
+  s3:
+    image: chrislusf/seaweedfs:3.85
+    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json",
+              "-master.volumeSizeLimitMB=64", "-volume.max=8"]
     volumes:
-      - azurite_data:/data
+      - s3_data:/data
+      - ./deploy/local/seaweedfs-s3.json:/etc/seaweedfs/s3.json:ro
     healthcheck:
-      test: ["CMD", "node", "-e", "require('net').connect(10000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8333"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20
+      start_period: 30s
 
   api:
     build:
@@ -40,16 +43,19 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT:-5173},http://127.0.0.1:${FRONTEND_PORT:-5173},http://localhost:${API_PORT:-8000},http://127.0.0.1:${API_PORT:-8000}
       COOKIE_SECURE: "false"
-      # Azurite's fixed, publicly documented development account key (not a secret).
-      AZURE_STORAGE_CONNECTION_STRING: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;"
-      STORAGE_CONTAINER: uploads
+      # Local-only credentials matching deploy/local/seaweedfs-s3.json. NCP uses its own API keys.
+      S3_ENDPOINT_URL: http://s3:8333
+      S3_REGION: kr-standard
+      S3_ACCESS_KEY: dataflow-local
+      S3_SECRET_KEY: dataflow-local-secret
+      S3_BUCKET: uploads
       MAX_UPLOAD_BYTES: "10485760"
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
-      azurite:
+      s3:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -70,7 +76,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      azurite:
+      s3:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
@@ -136,4 +142,4 @@ services:
 
 volumes:
   postgres_data:
-  azurite_data:
+  s3_data:

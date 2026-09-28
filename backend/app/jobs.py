@@ -16,7 +16,7 @@ from app.auth import current_user
 from app.db import get_db
 from app.models import Job, JobEvent, Project, UploadedFile, User
 from app.projects import authorized_tenant
-from app.storage import BlobNotFound, BlobStorage, StorageUnavailable, get_storage
+from app.storage import ObjectNotFound, ObjectStorage, StorageUnavailable, get_storage
 
 router = APIRouter(prefix="/api/tenants/{tenant_id}", tags=["jobs"])
 logger = logging.getLogger("uvicorn.error")
@@ -103,7 +103,7 @@ def read_csv_upload(file: UploadFile) -> tuple[str, bytes]:
 def create_job(project_id: UUID, request: Request, file: UploadFile = File(), job_type: JobType = Form(),
                notes: str = Form("", max_length=1000), tenant_id: UUID = Depends(authorized_tenant),
                user: User = Depends(current_user), db: Session = Depends(get_db),
-               storage: BlobStorage = Depends(get_storage)):
+               storage: ObjectStorage = Depends(get_storage)):
     if not db.scalar(select(Project.id).where(Project.id == project_id, Project.tenant_id == tenant_id)):
         raise HTTPException(404, "프로젝트를 찾을 수 없습니다.")
     name, data = read_csv_upload(file)
@@ -169,13 +169,13 @@ def job_detail(job_id: UUID, tenant_id: UUID = Depends(authorized_tenant), db: S
 
 @router.get("/jobs/{job_id}/result")
 def download_result(job_id: UUID, tenant_id: UUID = Depends(authorized_tenant), db: Session = Depends(get_db),
-                    storage: BlobStorage = Depends(get_storage)):
+                    storage: ObjectStorage = Depends(get_storage)):
     job = tenant_job(db, tenant_id, job_id)
     if not job.result_blob_name:
         raise HTTPException(404, "처리 결과가 아직 없습니다.")
     try:
         data = storage.download(job.result_blob_name)
-    except BlobNotFound:
+    except ObjectNotFound:
         raise HTTPException(404, "결과 파일을 찾을 수 없습니다.")
     except StorageUnavailable:
         raise HTTPException(503, "파일 저장소에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.")

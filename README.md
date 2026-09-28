@@ -10,7 +10,7 @@
 - 사용자·조직·소속·프로젝트·로그인 세션 테이블
 - Argon2 비밀번호 해시, HttpOnly 쿠키 인증 및 서버 세션 폐기
 - 매 요청 조직 소속 검증과 테넌트별 접근 제한
-- CSV 업로드 → Blob 저장소(로컬 Azurite) 저장 → 처리 작업 대기열 등록
+- CSV 업로드 → S3 호환 오브젝트 스토리지(로컬 SeaweedFS, 배포 시 NCP Object Storage) 저장 → 처리 작업 대기열 등록
 - 별도 Worker가 대기 작업을 가져가 처리하고 결과 CSV를 저장 (검증·정제·변환·집계)
 - 재시도(지수 백오프), 멈춘 작업 복구(heartbeat), 여러 Worker 동시 실행
 - 작업 목록·상세·상태 이력 조회, 결과 CSV 다운로드, 대시보드 최근 작업
@@ -66,11 +66,12 @@ DB나 저장소 장애 시 readiness는 503과 실패한 항목을 반환하고,
 
 ```text
 frontend/src/         React 화면, API 클라이언트
-backend/app/          인증, 프로젝트, 업로드·작업, Blob 저장소, DB 모델, 상태 API
+backend/app/          인증, 프로젝트, 업로드·작업, 오브젝트 스토리지, 모니터링, DB 모델, 상태 API
 backend/worker/       작업 Worker(main.py)와 CSV 처리 함수(processors.py)
 backend/migrations/   Alembic 변경 이력
 backend/tests/        인증·조직 격리·업로드 통합 테스트
-compose.yaml          앱·Worker·DB·Azurite·마이그레이션, 선택적 테스트 서비스
+compose.yaml          앱·Worker·DB·S3(SeaweedFS)·마이그레이션, 선택적 테스트 서비스
+deploy/local/         로컬 SeaweedFS S3 인증 설정
 .env.example          로컬 설정 예시
 ```
 
@@ -112,11 +113,15 @@ Compose는 로컬 포트 설정을 Origin 허용 목록에 반영합니다.
 - 저장 경로는 {tenant_id}/{project_id}/{file_id}.csv이며 사용자가 보낸 파일 이름은 경로에 쓰지 않습니다.
   원본 이름과 SHA-256 해시는 uploaded_files에 저장합니다.
 - 저장소 장애 시 503을 반환하고 DB에는 아무것도 기록하지 않습니다.
-  DB 기록이 실패하면 방금 올린 Blob을 삭제합니다. 삭제마저 실패하면 orphan_blob 로그를 남깁니다.
+  DB 기록이 실패하면 방금 올린 객체를 삭제합니다. 삭제마저 실패하면 orphan_blob 로그를 남깁니다.
 - 업로드 시점에는 형식만 가볍게 확인하고, 행 단위 검증은 Worker가 담당합니다.
 
-로컬 저장소는 Azure Storage 에뮬레이터 Azurite입니다. Compose의 AccountKey는 Azurite에 고정된 공개 개발용 키입니다.
-Azure 배포 시 AZURE_STORAGE_CONNECTION_STRING만 실제 Storage Account로 바꾸면 같은 코드가 동작합니다.
+저장소는 S3 API(boto3)로 접근합니다. 로컬은 S3 호환 SeaweedFS이고, NCP Object Storage도 S3 호환이라
+S3_ENDPOINT_URL(NCP: https://kr.object.ncloudstorage.com), S3_REGION, S3_ACCESS_KEY, S3_SECRET_KEY, S3_BUCKET만 바꾸면 같은 코드가 동작합니다.
+Compose의 S3 키는 deploy/local/seaweedfs-s3.json과 짝을 이루는 로컬 전용 값입니다.
+
+- S3 호환 저장소는 최신 botocore의 기본 CRC 체크섬을 지원하지 않을 수 있어서, 체크섬은 필요할 때만 보냅니다.
+- 요청 처리 경로는 최대 2회 시도합니다(S3_MAX_ATTEMPTS). readiness 확인은 probe 제한 시간 안에 응답하도록 재시도하지 않습니다.
 
 ## Worker
 
@@ -167,8 +172,8 @@ docker compose exec api alembic check
 일반 DB와 데모 데이터에는 영향을 주지 않습니다. 테스트 DB 중지 시 테스트 데이터는 사라집니다.
 마이그레이션과 모델 일치, 로그인 실패·세션 만료·폐기·교체, Origin 검증,
 타 조직 목록·상세·생성 차단, 중복·빈 이름·페이지 조회를 검증합니다.
-업로드 테스트는 메모리 저장소를 주입해 Azurite 없이 실행하며, 타 조직 업로드·조회 차단,
-형식·인코딩·크기 거절, 저장소 장애 503, DB 실패 시 Blob 정리, 상태 이력을 검증합니다.
+업로드 테스트는 메모리 저장소를 주입해 S3 없이 실행하며, 타 조직 업로드·조회 차단,
+형식·인코딩·크기 거절, 저장소 장애 503, DB 실패 시 객체 정리, 상태 이력을 검증합니다.
 Worker 테스트는 처리 함수 4종과 오류 분류, 완료·결과 다운로드, 재시도 백오프와 최대 시도,
 멈춘 작업 복구, 소유권을 잃은 Worker의 결과 무시를 검증합니다.
 실제 두 DB 연결로 SKIP LOCKED가 서로 다른 작업을 가져가는지도 확인합니다.
@@ -183,7 +188,7 @@ docker compose logs --tail 100 api
 docker compose down
 ```
 
-down은 DB와 Azurite 볼륨을 보존합니다. down -v는 DB 데이터와 업로드 파일을 삭제하므로 초기화 시에만 사용합니다.
+down은 DB와 S3 볼륨을 보존합니다. down -v는 DB 데이터와 업로드 파일을 삭제하므로 초기화 시에만 사용합니다.
 이미 생성된 DB의 계정은 .env 수정만으로 변경되지 않습니다.
 
 프런트엔드만 로컬 개발할 때는 Node.js 24 환경에서:
@@ -226,15 +231,24 @@ Vite 컨테이너는 개발용이며 배포 시 정적 빌드 제공 방식으�
 ## 다음 단계
 
 1. JSON 구조화 로그, Prometheus 메트릭(/metrics: 처리량·처리 시간 histogram·대기열 길이)
-2. GitHub Actions CI
-4. Terraform + Azure AKS / ACR / PostgreSQL / Blob Storage
+2. GitHub Actions CI (테스트, 이미지 빌드)
+3. Terraform으로 네이버 클라우드(NCP) 배포
 
-Worker가 jobs 테이블의 처리 시간·행 수·오류 코드·시도 횟수를 채우고,
-worker_heartbeats에 Worker별 생존 시각과 처리 건수를 기록합니다. 운영 대시보드는 이 데이터를 집계합니다.
-후속 단계에서 JSON 로그를 도입합니다.
-Azure에서는 메트릭을 Prometheus / Grafana, 컨테이너 로그를 Azure Monitor / Log Analytics에 연결합니다.
-작업 ID·사용자 ID는 Prometheus 라벨로 사용하지 않습니다.
-현재 health API만 구현됐으며 메트릭 수집·운영 집계·경보는 아직 구현하지 않았습니다.
+| 구성 요소 | 로컬 (Compose) | NCP |
+| --- | --- | --- |
+| 컨테이너 실행 | Docker Compose | Ncloud Kubernetes Service (NKS) |
+| 이미지 저장소 | 로컬 빌드 | NCP Container Registry |
+| DB | postgres 컨테이너 | Cloud DB for PostgreSQL |
+| 파일 저장소 | SeaweedFS (S3 호환) | Object Storage (S3 호환) |
+| 인프라 코드 | compose.yaml | Terraform (NCP 공식 provider) |
+
+네트워크(VPC·서브넷), NKS, Cloud DB, Object Storage 버킷, Container Registry를 Terraform으로 만들고,
+Worker는 대기 작업 수 기준으로 확장합니다(예: KEDA PostgreSQL scaler).
+
+모니터링 확장: 앱 안의 운영 대시보드(DB 집계)는 그대로 두고,
+NKS에 Prometheus / Grafana를 설치해 /metrics를 수집합니다. 서버·DB 인프라 지표와 로그는 NCP 모니터링 서비스로 보냅니다.
+작업 ID·사용자 ID처럼 값이 계속 늘어나는 항목은 Prometheus 라벨로 쓰지 않습니다.
+메트릭 수집과 경보는 아직 구현하지 않았습니다.
 
 ## 계정 정보 변경 (로컬 관리자)
 

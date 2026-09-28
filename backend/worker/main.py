@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, lazyload
 
 from app.db import engine
 from app.models import Job, JobEvent, WorkerHeartbeat
-from app.storage import BlobNotFound, BlobStorage, StorageUnavailable, get_storage
+from app.storage import ObjectNotFound, ObjectStorage, StorageUnavailable, get_storage
 from worker.processors import PROCESSORS, DataError
 
 logger = logging.getLogger("worker")
@@ -69,7 +69,7 @@ def claim_next(db: Session, worker_id: str) -> Job | None:
     return job
 
 
-def process_job(db: Session, storage: BlobStorage, job_id: UUID, worker_id: str) -> None:
+def process_job(db: Session, storage: ObjectStorage, job_id: UUID, worker_id: str) -> None:
     job = db.get(Job, job_id)
     source, job_type = job.file.blob_name, job.job_type
     result_blob = f"{job.tenant_id}/{job.project_id}/results/{job.id}.csv"
@@ -82,7 +82,7 @@ def process_job(db: Session, storage: BlobStorage, job_id: UUID, worker_id: str)
         storage.upload(result_blob, result.output, overwrite=True)
     except DataError as data_error:
         error = (data_error.code, data_error.message)
-    except BlobNotFound:
+    except ObjectNotFound:
         error = ("FILE_MISSING", "원본 파일을 저장소에서 찾을 수 없습니다.")
     except StorageUnavailable:
         error, retryable = ("STORAGE_ERROR", "파일 저장소에 연결할 수 없습니다."), True
@@ -144,7 +144,7 @@ def recover_stale(db: Session) -> int:
     return len(jobs)
 
 
-def run_once(db: Session, storage: BlobStorage, worker_id: str) -> bool:
+def run_once(db: Session, storage: ObjectStorage, worker_id: str) -> bool:
     job = claim_next(db, worker_id)
     if job is None:
         db.commit()
@@ -169,8 +169,8 @@ def heartbeat_loop(worker_id: str, stop: threading.Event) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    # The Azure SDK logs every HTTP request and header at INFO.
-    logging.getLogger("azure").setLevel(logging.WARNING)
+    # Keep SDK chatter (e.g. credential lookups) out of the job log.
+    logging.getLogger("botocore").setLevel(logging.WARNING)
     worker_id = os.getenv("WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
