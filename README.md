@@ -76,7 +76,7 @@ backend/tests/        인증·조직 격리·업로드 통합 테스트
 compose.yaml          앱·Worker·DB·S3(SeaweedFS)·마이그레이션, 선택적 테스트 서비스
 deploy/local/         로컬 SeaweedFS S3 인증 설정
 deploy/k8s/           Kubernetes 매니페스트 (base, overlays/local·ncp, components/keda) — deploy/k8s/README.md
-infra/terraform/      NCP 인프라 (VPC·NKS·Cloud DB·Object Storage) — infra/terraform/README.md
+infra/terraform/      NCP 인프라 Terraform (작성 중: 서브넷·NAT Gateway·라우트·NKS)
 monitoring/           Prometheus 설정·알림 규칙, Grafana 데이터 소스·대시보드
 .github/workflows/    CI
 .env.example          로컬 설정 예시
@@ -291,7 +291,7 @@ Frontend 이미지는 Dockerfile target이 두 개입니다.
 
 ## 다음 단계
 
-1. NCP 계정으로 `terraform plan`·`apply` 실행 (코드는 준비됨: infra/terraform)
+1. Terraform 마무리: Cloud DB for PostgreSQL, Object Storage 버킷, 원격 state, Kubernetes 설정 파일 연결
 2. CI에서 Container Registry push 후 NKS 배포(CD)
 
 | 구성 요소 | 로컬 (Compose) | NCP |

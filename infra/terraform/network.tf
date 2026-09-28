@@ -1,62 +1,83 @@
-# One VPC, one zone. Nodes and the database live in private subnets and reach the internet
-# through a NAT gateway; only the load balancer subnet is public.
-#
-#   10.10.1.0/24    nodes           private  GEN
-#   10.10.2.0/24    database        private  GEN
-#   10.10.10.0/24   nat gateway     public   NATGW
-#   10.10.100.0/24  lb (private)    private  LOADB   (required by NKS)
-#   10.10.101.0/24  lb (public)     public   LOADB   (ALB for the ingress)
-
-resource "ncloud_vpc" "main" {
-  name            = "${var.name}-vpc"
-  ipv4_cidr_block = var.vpc_cidr
+#VPC 생성
+data "ncloud_vpc" "main" {
+  name = "test-vpc"
 }
 
-locals {
-  subnets = {
-    nodes      = { cidr = cidrsubnet(var.vpc_cidr, 8, 1), type = "PRIVATE", usage = "GEN" }
-    database   = { cidr = cidrsubnet(var.vpc_cidr, 8, 2), type = "PRIVATE", usage = "GEN" }
-    nat        = { cidr = cidrsubnet(var.vpc_cidr, 8, 10), type = "PUBLIC", usage = "NATGW" }
-    lb_private = { cidr = cidrsubnet(var.vpc_cidr, 8, 100), type = "PRIVATE", usage = "LOADB" }
-    lb_public  = { cidr = cidrsubnet(var.vpc_cidr, 8, 101), type = "PUBLIC", usage = "LOADB" }
-  }
+#Subnet 생성
+resource "ncloud_subnet" "private_a" {
+  vpc_no         = data.ncloud_vpc.main.id
+  subnet         = "10.0.10.0/24"
+  zone           = "KR-1"
+  network_acl_no = data.ncloud_vpc.main.default_network_acl_no
+  subnet_type    = "PRIVATE"
+  name           = "tf-private-a"
 }
 
-resource "ncloud_subnet" "this" {
-  for_each       = local.subnets
-  name           = "${var.name}-${replace(each.key, "_", "-")}"
-  vpc_no         = ncloud_vpc.main.vpc_no
-  zone           = var.zone
-  subnet         = each.value.cidr
-  subnet_type    = each.value.type
-  usage_type     = each.value.usage
-  network_acl_no = ncloud_vpc.main.default_network_acl_no
+resource "ncloud_subnet" "private_b" {
+  vpc_no         = data.ncloud_vpc.main.id
+  subnet         = "10.0.20.0/24"
+  zone           = "KR-2"
+  network_acl_no = data.ncloud_vpc.main.default_network_acl_no
+  subnet_type    = "PRIVATE"
+  name           = "tf-private-b"
 }
 
+resource "ncloud_subnet" "lb_public" {
+  vpc_no         = data.ncloud_vpc.main.id
+  subnet         = "10.0.30.0/24"
+  zone           = "KR-1"
+  network_acl_no = data.ncloud_vpc.main.default_network_acl_no
+  subnet_type    = "PUBLIC"
+  usage_type     = "LOADB"
+  name           = "tf-lb-public"
+}
+
+resource "ncloud_subnet" "lb_private" {
+  vpc_no         = data.ncloud_vpc.main.id
+  subnet         = "10.0.40.0/24"
+  zone           = "KR-1"
+  network_acl_no = data.ncloud_vpc.main.default_network_acl_no
+  subnet_type    = "PRIVATE"
+  usage_type     = "LOADB"
+  name           = "tf-lb-private"
+}
+
+resource "ncloud_subnet" "nat_gateway" {
+  vpc_no         = data.ncloud_vpc.main.id
+  subnet         = "10.0.100.0/24"
+  zone           = "KR-1"
+  network_acl_no = data.ncloud_vpc.main.default_network_acl_no
+  subnet_type    = "PUBLIC"
+  usage_type     = "NATGW"
+  name           = "tf-nat-subnet"
+}
+
+#NAT Gateway 생성
 resource "ncloud_nat_gateway" "main" {
-  name      = "${var.name}-nat"
-  vpc_no    = ncloud_vpc.main.vpc_no
-  zone      = var.zone
-  subnet_no = ncloud_subnet.this["nat"].id
+  vpc_no    = data.ncloud_vpc.main.id
+  zone      = "KR-1"
+  subnet_no = ncloud_subnet.nat_gateway.id
+  name      = "tf-nat"
 }
 
+# ② 프라이빗 서브넷용 라우트 테이블
 resource "ncloud_route_table" "private" {
-  name                  = "${var.name}-private"
-  vpc_no                = ncloud_vpc.main.vpc_no
-  supported_subnet_type = "PRIVATE"
+  vpc_no                = data.ncloud_vpc.main.id
+  supported_subnet_type = "PRIVATE" # 이 테이블을 붙일 서브넷 종류
+  name                  = "tf-private-rt"
 }
 
-resource "ncloud_route" "private_egress" {
-  route_table_no         = ncloud_route_table.private.id
+# ② 경로: 모든 외부 트래픽(0.0.0.0/0)은 NAT로
+resource "ncloud_route" "to_nat" {
+  route_table_no         = ncloud_route_table.private.id # 방금 만든 라우트 테이블
   destination_cidr_block = "0.0.0.0/0"
   target_type            = "NATGW"
-  target_name            = ncloud_nat_gateway.main.name
-  target_no              = ncloud_nat_gateway.main.id
+  target_no              = ncloud_nat_gateway.main.id   # NAT Gateway의 id
+  target_name            = ncloud_nat_gateway.main.name # NAT Gateway의 name
 }
 
-# Nodes pull images and the DB fetches updates through the NAT gateway.
-resource "ncloud_route_table_association" "private" {
-  for_each       = toset(["nodes", "database"])
+# ③ 노드 서브넷에 연결
+resource "ncloud_route_table_association" "private_a" {
   route_table_no = ncloud_route_table.private.id
-  subnet_no      = ncloud_subnet.this[each.key].id
+  subnet_no      = ncloud_subnet.private_a.id # 노드가 있는 서브넷
 }

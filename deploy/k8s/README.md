@@ -57,7 +57,8 @@ kubectl apply --server-side -f https://github.com/kedacore/keda/releases/downloa
 - **ALB Ingress:** KVM 클러스터에는 NCP ALB Ingress Controller가 기본으로 설치되어 있습니다(`ingressClassName: alb`).
   Ingress 하나가 ALB 하나를 만들고, 대상 Service는 NodePort여야 합니다.
 - **HTTPS:** [overlays/ncp/ingress-alb.yaml](overlays/ncp/ingress-alb.yaml)의 `ssl-certificate-no`에 Certificate Manager 인증서 번호를 넣어야 합니다.
-- **설정 값:** `generated/config.env`와 `generated/secret.env`는 Terraform이 만듭니다. git에는 올라가지 않습니다(예시: `*.example`).
+- **설정 값:** `generated/config.env`와 `generated/secret.env`는 git에 올라가지 않습니다.
+  Terraform output으로 자동 생성하도록 연결할 예정이고, 그 전까지는 `*.example`을 복사해 직접 채웁니다.
 - **이미지 pull:** Container Registry는 NCP 콘솔에서 만듭니다(Terraform 리소스 없음). pod가 이미지를 받아올 수 있도록 pull용 Secret을 만듭니다.
 
 ```powershell
