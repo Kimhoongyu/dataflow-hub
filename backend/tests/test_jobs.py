@@ -4,46 +4,8 @@ from sqlalchemy.exc import OperationalError
 
 from app import jobs as jobs_module
 from app import main as main_module
-from app.main import app
-from app.models import Job, JobEvent, Project, UploadedFile
-from app.storage import StorageUnavailable, get_storage
-from conftest import login
-
-CSV = b"id,amount\n1,10\n2,20\n"
-
-
-class FakeStorage:
-    def __init__(self):
-        self.blobs: dict[str, bytes] = {}
-        self.fail = False
-
-    def upload(self, name, data, content_type="text/csv"):
-        if self.fail:
-            raise StorageUnavailable
-        assert name not in self.blobs
-        self.blobs[name] = data
-
-    def delete(self, name):
-        self.blobs.pop(name, None)
-
-    def check(self):
-        if self.fail:
-            raise StorageUnavailable
-
-
-@pytest.fixture()
-def env(setup):
-    client, db, tenants, users = setup
-    storage = FakeStorage()
-    app.dependency_overrides[get_storage] = lambda: storage
-    projects = [db.scalar(select(Project).where(Project.tenant_id == t.id)) for t in tenants]
-    login(client)
-    return client, db, tenants, projects, storage
-
-
-def upload(client, tenant, project, name="orders.csv", content=CSV, job_type="validation", **kwargs):
-    return client.post(f"/api/tenants/{tenant.id}/projects/{project.id}/jobs",
-                       files={"file": (name, content, "text/csv")}, data={"job_type": job_type, **kwargs})
+from app.models import Job, JobEvent, UploadedFile
+from conftest import CSV, login, upload
 
 
 def count(db, model):
@@ -84,7 +46,8 @@ def test_list_filters_and_detail_history(env):
     path = f"/api/tenants/{tenants[0].id}/jobs"
     page = client.get(path).json()
     assert page["total"] == 2
-    assert page["items"][0]["file"]["original_name"] == "b.csv"
+    # One test transaction gives both rows the same created_at, so only membership is stable here.
+    assert {item["file"]["original_name"] for item in page["items"]} == {"a.csv", "b.csv"}
     assert client.get(f"{path}?project_id={projects[0].id}").json()["total"] == 2
     assert client.get(f"{path}?status=queued").json()["total"] == 2
     assert client.get(f"{path}?status=failed").json()["total"] == 0

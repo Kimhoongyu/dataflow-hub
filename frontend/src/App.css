@@ -120,6 +120,7 @@ button.secondary { background: #eef2f8; color: #3a4558; }
 .timeline { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; font-size: 14px; }
 .timeline li { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .timeline small { color: #8b96a8; }
+a.button-link { display: inline-block; margin-top: 4px; padding: 11px 16px; border-radius: 8px; background: #2864d7; color: white; font-weight: 700; text-decoration: none; }
 
 @media (max-width: 900px) { .content { padding: 28px; } .sidebar { flex-basis: 215px; width: 215px; padding: 24px 16px; } .cards { grid-template-columns: 1fr; } .login-page { gap: 32px; padding: 28px; } }
 @media (max-width: 640px) { .app { flex-direction: column; } .sidebar { width: 100%; min-height: auto; flex-basis: auto; gap: 16px; } .workspace { margin: 0; } .sidebar-description { display: none; } .sidebar-footer { margin-top: 0; } .content { padding: 24px 16px; } .login-page { grid-template-columns: 1fr; padding: 24px; gap: 16px; } .login-card { padding: 24px; } }

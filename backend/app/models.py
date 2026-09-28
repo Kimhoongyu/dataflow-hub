@@ -102,9 +102,16 @@ class Job(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_ms: Mapped[int | None] = mapped_column(Integer)
+    # Retry backoff: a queued job is not claimed before this time.
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_blob_name: Mapped[str | None] = mapped_column(String(500))
 
     file: Mapped[UploadedFile] = relationship(lazy="joined")
     project: Mapped[Project] = relationship(lazy="joined")
+
+    @property
+    def has_result(self) -> bool:
+        return self.result_blob_name is not None
 
 
 class JobEvent(Base):
@@ -120,3 +127,13 @@ class JobEvent(Base):
     to_status: Mapped[str] = mapped_column(String(20))
     message: Mapped[str] = mapped_column(String(1000), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WorkerHeartbeat(Base):
+    """One row per running worker; a stale row means its processing jobs can be recovered."""
+    __tablename__ = "worker_heartbeats"
+    worker_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    current_job_id: Mapped[UUID | None] = mapped_column()
+    processed_count: Mapped[int] = mapped_column(Integer, default=0)

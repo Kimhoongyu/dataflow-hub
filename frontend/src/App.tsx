@@ -99,7 +99,7 @@ function Workspace({ tenant, onExpired }: { tenant: Tenant; onExpired: () => voi
       <section className="cards">
         <article><p>프로젝트</p><strong>{data?.total ?? '—'}</strong><small>현재 조직의 저장된 프로젝트</small></article>
         <article><p>처리 작업</p><strong>{recentJobs.data?.total ?? '—'}</strong><small>업로드로 등록된 전체 작업</small></article>
-        <article><p>성공률</p><strong>—</strong><small>Worker 연결 후 집계</small></article>
+        <article><p>성공률</p><strong>—</strong><small>운영 모니터링 단계에서 집계</small></article>
       </section>
       <section className="panel recent-jobs">
         <div className="panel-title"><h3>최근 처리 작업</h3><span>{recentJobs.data ? `${recentJobs.data.total}건` : '조회 중'}</span></div>
@@ -107,7 +107,7 @@ function Workspace({ tenant, onExpired }: { tenant: Tenant; onExpired: () => voi
         {recentJobs.data?.total === 0 && <p className="empty">아직 업로드한 CSV가 없습니다. 프로젝트 상세에서 CSV를 업로드하세요.</p>}
         {recentJobs.data && recentJobs.data.items.length > 0 && <JobTable jobs={recentJobs.data.items} showProject onOpen={setOpenJobId} />}
       </section>
-      <p className="demo-note">CSV 처리 Worker는 다음 단계에서 연결됩니다. 지금은 업로드한 작업이 대기 상태로 표시됩니다.</p>
+      <p className="demo-note">업로드한 CSV는 Worker가 순서대로 처리합니다. 처리 중인 작업이 있으면 목록이 자동으로 갱신됩니다.</p>
     </>}
     {page === 'projects' && <form className="panel project-form" onSubmit={create}>
       <h3>프로젝트 만들기</h3>

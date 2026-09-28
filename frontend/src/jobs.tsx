@@ -3,6 +3,7 @@ import { api, ApiError, errorMessage, type Job, type JobDetail, type JobStatus, 
 
 const STATUS_LABEL: Record<JobStatus, string> = { queued: '대기', processing: '처리 중', completed: '완료', failed: '실패' }
 const TYPE_LABEL: Record<JobType, string> = { validation: '검증', cleansing: '정제', transformation: '변환', aggregation: '집계' }
+const POLL_MS = 3000
 // Mirrors the server default so users get instant feedback; the server still enforces its own limit.
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
@@ -69,15 +70,24 @@ export function UploadForm({ tenantId, projectId, onUploaded, onError }: {
 export function JobDetailPanel({ tenantId, jobId, onClose, onExpired }: { tenantId: string; jobId: string; onClose: () => void; onExpired: () => void }) {
   const [job, setJob] = useState<JobDetail | null>(null)
   const [error, setError] = useState('')
+  const [tick, setTick] = useState(0)
+  const path = `/tenants/${tenantId}/jobs/${jobId}`
   useEffect(() => {
     const controller = new AbortController()
-    api<JobDetail>(`/tenants/${tenantId}/jobs/${jobId}`, { signal: controller.signal }).then(setJob).catch(error => {
+    api<JobDetail>(path, { signal: controller.signal }).then(setJob).catch(error => {
       if (controller.signal.aborted) return
       if (error instanceof ApiError && error.status === 401) onExpired()
       else setError(errorMessage(error))
     })
     return () => controller.abort()
-  }, [tenantId, jobId, onExpired])
+  }, [path, tick, onExpired])
+  // Follow the job until it reaches a final state.
+  const active = job?.status === 'queued' || job?.status === 'processing'
+  useEffect(() => {
+    if (!active) return
+    const timer = setTimeout(() => setTick(v => v + 1), POLL_MS)
+    return () => clearTimeout(timer)
+  }, [active, job])
   return <section className="panel detail" aria-label="작업 상세">
     <div className="panel-title"><h3>{job?.file.original_name ?? '작업 상세'}</h3><button className="secondary" onClick={onClose}>상세 닫기</button></div>
     {error && <p role="alert" className="error">{error}</p>}
@@ -89,12 +99,15 @@ export function JobDetailPanel({ tenantId, jobId, onClose, onExpired }: { tenant
         <dt>처리 유형</dt><dd>{TYPE_LABEL[job.job_type]}</dd>
         <dt>파일 크기</dt><dd>{formatBytes(job.file.size_bytes)}</dd>
         <dt>등록</dt><dd>{formatTime(job.created_at)}</dd>
-        {job.finished_at && <><dt>완료</dt><dd>{formatTime(job.finished_at)}</dd></>}
+        {job.finished_at && <><dt>종료</dt><dd>{formatTime(job.finished_at)}</dd></>}
+        {job.duration_ms !== null && <><dt>처리 시간</dt><dd>{(job.duration_ms / 1000).toFixed(2)}초</dd></>}
+        {job.attempt > 0 && <><dt>시도</dt><dd>{job.attempt}회</dd></>}
+        {job.next_attempt_at && job.status === 'queued' && <><dt>재시도 예정</dt><dd>{formatTime(job.next_attempt_at)}</dd></>}
         {job.rows_in !== null && <><dt>처리 행</dt><dd>{job.rows_in} → {job.rows_out ?? '—'} (오류 {job.error_row_count ?? 0})</dd></>}
         {job.notes && <><dt>메모</dt><dd>{job.notes}</dd></>}
       </dl>
-      {job.error_message && <p className="error">[{job.error_code}] {job.error_message}</p>}
-      {job.status === 'queued' && <p className="demo-note">처리 Worker는 다음 단계에서 연결됩니다. 지금은 대기 상태로 유지됩니다.</p>}
+      {job.error_message && <p className="error">[{job.error_code}] {job.error_message}{job.status === 'queued' && ' — 자동으로 다시 시도합니다.'}</p>}
+      {job.has_result && <a className="button-link" href={`/api${path}/result`} download>결과 CSV 다운로드</a>}
       <h4>처리 이력</h4>
       <ol className="timeline">{job.events.map((event, index) => <li key={index}>
         <StatusBadge status={event.to_status} /> <span>{event.message}</span> <small>{formatTime(event.created_at)}</small>

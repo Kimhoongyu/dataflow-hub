@@ -11,6 +11,7 @@ export interface Job {
   rows_in: number | null; rows_out: number | null; error_row_count: number | null
   error_code: string | null; error_message: string | null
   created_at: string; started_at: string | null; finished_at: string | null; duration_ms: number | null
+  next_attempt_at: string | null; has_result: boolean
 }
 export interface JobEvent { from_status: JobStatus | null; to_status: JobStatus; message: string; created_at: string }
 export interface JobDetail extends Job { events: JobEvent[] }

@@ -3,9 +3,10 @@ import hashlib
 import logging
 import os
 from typing import Literal
+from urllib.parse import quote
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -15,7 +16,7 @@ from app.auth import current_user
 from app.db import get_db
 from app.models import Job, JobEvent, Project, UploadedFile, User
 from app.projects import authorized_tenant
-from app.storage import BlobStorage, StorageUnavailable, get_storage
+from app.storage import BlobNotFound, BlobStorage, StorageUnavailable, get_storage
 
 router = APIRouter(prefix="/api/tenants/{tenant_id}", tags=["jobs"])
 logger = logging.getLogger("uvicorn.error")
@@ -58,6 +59,8 @@ class JobOutput(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     duration_ms: int | None
+    next_attempt_at: datetime | None
+    has_result: bool
 
 
 class JobEventOutput(BaseModel):
@@ -149,11 +152,35 @@ def list_jobs(tenant_id: UUID = Depends(authorized_tenant), db: Session = Depend
             "total": db.scalar(select(func.count()).select_from(Job).where(*conditions))}
 
 
-@router.get("/jobs/{job_id}", response_model=JobDetail)
-def job_detail(job_id: UUID, tenant_id: UUID = Depends(authorized_tenant), db: Session = Depends(get_db)):
+def tenant_job(db: Session, tenant_id: UUID, job_id: UUID) -> Job:
     job = db.scalar(select(Job).where(Job.id == job_id, Job.tenant_id == tenant_id))
     if not job:
         raise HTTPException(404, "작업을 찾을 수 없습니다.")
+    return job
+
+
+@router.get("/jobs/{job_id}", response_model=JobDetail)
+def job_detail(job_id: UUID, tenant_id: UUID = Depends(authorized_tenant), db: Session = Depends(get_db)):
+    job = tenant_job(db, tenant_id, job_id)
     events = db.scalars(select(JobEvent).where(JobEvent.job_id == job.id).order_by(JobEvent.created_at, JobEvent.id)).all()
     return JobDetail(**JobOutput.model_validate(job).model_dump(),
                      events=[JobEventOutput.model_validate(event) for event in events])
+
+
+@router.get("/jobs/{job_id}/result")
+def download_result(job_id: UUID, tenant_id: UUID = Depends(authorized_tenant), db: Session = Depends(get_db),
+                    storage: BlobStorage = Depends(get_storage)):
+    job = tenant_job(db, tenant_id, job_id)
+    if not job.result_blob_name:
+        raise HTTPException(404, "처리 결과가 아직 없습니다.")
+    try:
+        data = storage.download(job.result_blob_name)
+    except BlobNotFound:
+        raise HTTPException(404, "결과 파일을 찾을 수 없습니다.")
+    except StorageUnavailable:
+        raise HTTPException(503, "파일 저장소에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.")
+    stem = job.file.original_name.rsplit(".", 1)[0]
+    filename = f"{stem}-{job.job_type}-result.csv"
+    # RFC 5987 encoding keeps Korean file names intact across browsers.
+    return Response(data, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename=\"result.csv\"; filename*=UTF-8''{quote(filename)}"})

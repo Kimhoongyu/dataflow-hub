@@ -10,7 +10,11 @@ from azure.storage.blob import BlobServiceClient, ContentSettings
 
 
 class StorageUnavailable(Exception):
-    pass
+    """Transient: storage could not be reached. Callers may retry."""
+
+
+class BlobNotFound(Exception):
+    """Permanent: the blob does not exist. Retrying will not help."""
 
 
 class BlobStorage:
@@ -30,11 +34,19 @@ class BlobStorage:
             pass
         self._container_ready = True
 
-    def upload(self, name: str, data: bytes, content_type: str = "text/csv") -> None:
+    def upload(self, name: str, data: bytes, content_type: str = "text/csv", overwrite: bool = False) -> None:
         try:
             self._ensure_container()
-            self._container.upload_blob(name, data, overwrite=False,
+            self._container.upload_blob(name, data, overwrite=overwrite,
                                         content_settings=ContentSettings(content_type=content_type))
+        except AzureError as error:
+            raise StorageUnavailable from error
+
+    def download(self, name: str) -> bytes:
+        try:
+            return self._container.download_blob(name).readall()
+        except ResourceNotFoundError as error:
+            raise BlobNotFound(name) from error
         except AzureError as error:
             raise StorageUnavailable from error
 
