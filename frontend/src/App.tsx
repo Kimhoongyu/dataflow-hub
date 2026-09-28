@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError, errorMessage as message, type Project, type ProjectPage, type Tenant, type User } from './api'
 import { JobDetailPanel, JobTable, UploadForm } from './jobs'
+import { MonitoringDashboard } from './monitoring'
 import { useJobs } from './useJobs'
 import './App.css'
 
@@ -96,18 +97,13 @@ function Workspace({ tenant, onExpired }: { tenant: Tenant; onExpired: () => voi
     {error && <div role="alert" className="error">{error} <button className="secondary" onClick={() => { setError(''); setData(null); setRevision(v => v + 1) }}>다시 조회</button></div>}
     {notice && <p className="notice" role="status">{notice}</p>}
     {page === 'dashboard' && <>
-      <section className="cards">
-        <article><p>프로젝트</p><strong>{data?.total ?? '—'}</strong><small>현재 조직의 저장된 프로젝트</small></article>
-        <article><p>처리 작업</p><strong>{recentJobs.data?.total ?? '—'}</strong><small>업로드로 등록된 전체 작업</small></article>
-        <article><p>성공률</p><strong>—</strong><small>운영 모니터링 단계에서 집계</small></article>
-      </section>
+      <MonitoringDashboard tenantId={tenant.id} refreshKey={jobsRevision} onExpired={onExpired} onOpenJob={setOpenJobId} />
       <section className="panel recent-jobs">
         <div className="panel-title"><h3>최근 처리 작업</h3><span>{recentJobs.data ? `${recentJobs.data.total}건` : '조회 중'}</span></div>
         {recentJobs.error && <p role="alert" className="error">{recentJobs.error}</p>}
         {recentJobs.data?.total === 0 && <p className="empty">아직 업로드한 CSV가 없습니다. 프로젝트 상세에서 CSV를 업로드하세요.</p>}
         {recentJobs.data && recentJobs.data.items.length > 0 && <JobTable jobs={recentJobs.data.items} showProject onOpen={setOpenJobId} />}
       </section>
-      <p className="demo-note">업로드한 CSV는 Worker가 순서대로 처리합니다. 처리 중인 작업이 있으면 목록이 자동으로 갱신됩니다.</p>
     </>}
     {page === 'projects' && <form className="panel project-form" onSubmit={create}>
       <h3>프로젝트 만들기</h3>

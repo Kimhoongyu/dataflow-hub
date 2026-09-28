@@ -17,6 +17,21 @@ export interface JobEvent { from_status: JobStatus | null; to_status: JobStatus;
 export interface JobDetail extends Job { events: JobEvent[] }
 export interface JobPage { items: Job[]; total: number }
 
+export type Period = '24h' | '7d' | '30d'
+export interface Monitoring {
+  period: Period; since: string; generated_at: string; timezone: string; bucket: 'hour' | 'day'
+  summary: { uploads: number; completed: number; failed: number; success_rate: number | null
+    avg_duration_ms: number | null; p95_duration_ms: number | null; retries: number }
+  queue: { queued: number; processing: number; oldest_queued_seconds: number | null; stuck: number
+    workers_alive: number; workers_stale: number }
+  projects: { id: string; name: string; uploads: number; completed: number; failed: number
+    success_rate: number | null; active: number; last_finished_at: string | null }[]
+  timeseries: { start: string; completed: number; failed: number }[]
+  error_codes: { error_code: string; count: number }[]
+  recent_errors: { job_id: string; project_name: string; file_name: string; status: JobStatus; error_code: string
+    error_message: string | null; attempt: number; occurred_at: string | null }[]
+}
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) { super(message); this.status = status }

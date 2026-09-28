@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.db import engine
 from app.auth import router as auth_router
 from app.jobs import MAX_REQUEST_BYTES, router as jobs_router
+from app.monitoring import router as monitoring_router
 from app.projects import router as projects_router
 from app.storage import StorageUnavailable, get_storage
 
@@ -24,7 +25,7 @@ async def lifespan(app: FastAPI):
     engine.dispose()
 
 
-app = FastAPI(title="DataFlow Hub API", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="DataFlow Hub API", version="0.5.0", lifespan=lifespan)
 REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 allowed_origins = {value.strip() for value in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:8000").split(",") if value.strip()}
 
@@ -52,6 +53,7 @@ async def protect_browser_requests(request, call_next):
 app.include_router(auth_router)
 app.include_router(projects_router)
 app.include_router(jobs_router)
+app.include_router(monitoring_router)
 
 
 @app.get("/api/health/live")

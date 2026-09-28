@@ -3,7 +3,7 @@
 포트폴리오용 멀티테넌트 데이터 처리 SaaS MVP.
 목표: 프로젝트별 CSV 업로드 → Worker 비동기 처리 → 결과·이력·운영 현황 조회.
 
-## 현재 구현: 4단계
+## 현재 구현: 5단계
 
 - React + TypeScript 로그인·대시보드·프로젝트 생성/목록/상세
 - FastAPI + PostgreSQL, Alembic 마이그레이션
@@ -14,10 +14,10 @@
 - 별도 Worker가 대기 작업을 가져가 처리하고 결과 CSV를 저장 (검증·정제·변환·집계)
 - 재시도(지수 백오프), 멈춘 작업 복구(heartbeat), 여러 Worker 동시 실행
 - 작업 목록·상세·상태 이력 조회, 결과 CSV 다운로드, 대시보드 최근 작업
+- 운영 모니터링 대시보드: 기간별 업로드·성공·실패·성공률·처리 시간, 처리 추이, 프로젝트별 현황, 최근 오류, Worker·대기열 상태
 - 요청 ID(X-Request-ID)를 작업에 저장해 업로드 요청과 로그를 연결
 - Docker Compose 로컬 실행과 별도 DB 기반 통합 테스트
 
-성공률·최근 오류 등 운영 집계 대시보드는 다음 단계입니다.
 
 ## 시작하기 (PowerShell)
 
@@ -87,6 +87,7 @@ compose.yaml          앱·Worker·DB·Azurite·마이그레이션, 선택적 �
 | GET | /api/tenants/{tenant_id}/jobs | 작업 목록 (project_id, status 필터) |
 | GET | /api/tenants/{tenant_id}/jobs/{job_id} | 작업 상세와 상태 이력 |
 | GET | /api/tenants/{tenant_id}/jobs/{job_id}/result | 결과 CSV 다운로드 (UTF-8 BOM) |
+| GET | /api/tenants/{tenant_id}/monitoring?period=24h\|7d\|30d | 운영 현황 집계 (대시보드 전체) |
 
 목록은 offset(기본 0), limit(기본 20, 최대 100)을 지원합니다.
 조직 소속을 매번 검증하고 타 조직과 없는 리소스 모두 404를 반환합니다.
@@ -201,17 +202,32 @@ Vite 컨테이너는 개발용이며 배포 시 정적 빌드 제공 방식으�
 기존 마이그레이션은 수정하지 않습니다. 컨테이너 안에서 생성한 revision은 호스트에 자동 저장되지 않으므로
 로컬 Python 개발 환경에서 생성하거나 생성 파일을 호스트의 backend/migrations/versions로 복사해야 합니다.
 
-## 다음 단계와 운영 모니터링
+## 운영 모니터링
 
-1. 운영 모니터링: 프로젝트별 현황·성공률·최근 오류 집계 API와 대시보드, Worker 상태
-2. JSON 구조화 로그, Prometheus 메트릭(/metrics)
-3. GitHub Actions CI
+대시보드는 모니터링 API 한 번으로 그리며 10초마다 갱신합니다. 모든 집계는 조직 범위로 제한됩니다.
+
+| 항목 | 기준 |
+| --- | --- |
+| 업로드 | 기간 내 업로드 시각 |
+| 완료·실패·성공률 | 기간 내 종료 시각. 성공률 = 완료 ÷ (완료 + 실패) |
+| 평균·p95 처리 시간 | 기간 내 완료 작업의 duration_ms |
+| 재시도 | 기간 내 processing → queued 이벤트 수 |
+| 대기열·처리 중·최장 대기 | 현재 값 |
+| 멈춘 작업 | heartbeat가 끊긴 Worker가 잡고 있는 processing 작업 |
+| Worker 정상/중단 | 플랫폼 공통. WORKER_STALE_SECONDS 이내 heartbeat 여부, 개수만 노출 |
+| 처리 추이 | 24h는 시간별, 7d·30d는 일별. DASHBOARD_TIMEZONE(기본 Asia/Seoul) 기준, 빈 구간은 0 |
+| 최근 오류 | 실패 작업과 오류 후 재시도 대기 작업 최근 10건, 오류 코드별 건수 |
+
+- **상태 표시:** Worker가 없으면 치명, 멈춘 작업이나 5분 넘게 기다린 작업이 있으면 경고로 표시합니다. 색만이 아니라 아이콘과 문구로도 구분합니다.
+- **차트:** 완료(파랑)와 실패(빨강) 누적 막대입니다. 색각 이상 구분 검사를 통과한 조합이고, 범례·툴팁·표 보기를 함께 제공합니다.
+- **집계 방식:** 인덱스(tenant_id·status, tenant_id·project_id·created_at)를 활용해 요청 시점에 바로 집계합니다.
+  데이터가 커지면 일 단위 요약 테이블이나 materialized view로 옮깁니다.
+
+## 다음 단계
+
+1. JSON 구조화 로그, Prometheus 메트릭(/metrics: 처리량·처리 시간 histogram·대기열 길이)
+2. GitHub Actions CI
 4. Terraform + Azure AKS / ACR / PostgreSQL / Blob Storage
-
-운영 대시보드는 테넌트 권한이 적용된 DB 집계 API로 프로젝트별 업로드·처리 현황,
-성공·실패 건수, 대기·처리 중 작업, 최근 오류를 제공합니다.
-업로드는 저장 완료 시각, 처리 실적은 최종 완료 시각으로 기간 집계하고
-재시도 오류는 실행 이력으로 구분합니다. 대기·처리 중은 현재 수치입니다.
 
 Worker가 jobs 테이블의 처리 시간·행 수·오류 코드·시도 횟수를 채우고,
 worker_heartbeats에 Worker별 생존 시각과 처리 건수를 기록합니다. 운영 대시보드는 이 데이터를 집계합니다.
