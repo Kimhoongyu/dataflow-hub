@@ -3,17 +3,19 @@
 포트폴리오용 멀티테넌트 데이터 처리 SaaS MVP.
 목표: 프로젝트별 CSV 업로드 → Worker 비동기 처리 → 결과·이력·운영 현황 조회.
 
-## 현재 구현: 2단계
+## 현재 구현: 3단계
 
 - React + TypeScript 로그인·대시보드·프로젝트 생성/목록/상세
 - FastAPI + PostgreSQL, Alembic 마이그레이션
 - 사용자·조직·소속·프로젝트·로그인 세션 테이블
 - Argon2 비밀번호 해시, HttpOnly 쿠키 인증 및 서버 세션 폐기
 - 매 요청 조직 소속 검증과 테넌트별 접근 제한
+- CSV 업로드 → Blob 저장소(로컬 Azurite) 저장 → 처리 작업 대기열 등록
+- 작업 목록·상세·상태 이력 조회, 대시보드 최근 작업
+- 요청 ID(X-Request-ID)를 작업에 저장해 업로드 요청과 로그를 연결
 - Docker Compose 로컬 실행과 별도 DB 기반 통합 테스트
 
-프로젝트와 계정은 DB에 저장됩니다. CSV 업로드, Worker, 실제 처리 통계·최근 오류 집계는 후속 단계입니다.
-처리 통계는 화면에서 준비 중으로 표시합니다.
+Worker는 아직 없어서 업로드한 작업은 queued(대기) 상태로 남습니다. 처리·성공률·최근 오류 집계는 후속 단계입니다.
 
 ## 시작하기 (PowerShell)
 
@@ -35,11 +37,11 @@ seed는 명시적으로 실행하며 기존 계정·비밀번호·프로젝트�
 - 웹: http://localhost:5173
 - API 문서: http://localhost:8000/docs
 - 서버 상태: http://localhost:8000/api/health/live
-- DB 상태: http://localhost:8000/api/health/ready
+- DB·저장소 상태: http://localhost:8000/api/health/ready
 - 프런트엔드 프록시: http://localhost:5173/api/health/ready
 
-DB 정상 시 readiness는 200과 {"status":"ok","database":"ok"}를 반환합니다.
-DB 장애 시 readiness는 503이고 liveness는 200을 유지합니다.
+정상 시 readiness는 200과 {"status":"ok","database":"ok","storage":"ok"}를 반환합니다.
+DB나 저장소 장애 시 readiness는 503과 실패한 항목을 반환하고, liveness는 200을 유지합니다.
 포트 충돌은 .env의 FRONTEND_PORT / API_PORT로 조정합니다. DB 포트는 호스트에 공개하지 않습니다.
 
 ## 로컬 데모 계정
@@ -54,16 +56,18 @@ DB 장애 시 readiness는 503이고 liveness는 200을 유지합니다.
 1. A 계정 로그인 → 프로젝트 메뉴 → 프로젝트 생성.
 2. 프로젝트 이름을 눌러 상세 확인.
 3. 새로고침 후 프로젝트가 유지되는지 확인.
-4. 로그아웃 → B 계정 로그인 → B 조직의 프로젝트만 표시되는지 확인.
+4. 프로젝트 상세에서 CSV 파일과 처리 유형을 골라 업로드 → 작업이 대기 상태로 등록.
+5. 파일 이름을 눌러 작업 상세와 처리 이력 확인. 대시보드 최근 처리 작업에도 표시.
+6. 로그아웃 → B 계정 로그인 → B 조직의 프로젝트와 작업만 표시되는지 확인.
 
 ## 폴더
 
 ```text
 frontend/src/         React 화면, API 클라이언트
-backend/app/          인증, 프로젝트, DB 모델, 상태 API
+backend/app/          인증, 프로젝트, 업로드·작업, Blob 저장소, DB 모델, 상태 API
 backend/migrations/   Alembic 변경 이력
-backend/tests/        인증·조직 격리 통합 테스트
-compose.yaml          앱·DB·마이그레이션, 선택적 테스트 서비스
+backend/tests/        인증·조직 격리·업로드 통합 테스트
+compose.yaml          앱·DB·Azurite·마이그레이션, 선택적 테스트 서비스
 .env.example          로컬 설정 예시
 ```
 
@@ -76,6 +80,9 @@ compose.yaml          앱·DB·마이그레이션, 선택적 테스트 서비스
 | GET | /api/auth/me | 현재 사용자 및 소속 조직 |
 | GET / POST | /api/tenants/{tenant_id}/projects | 목록 / 생성 |
 | GET | /api/tenants/{tenant_id}/projects/{project_id} | 상세 |
+| POST | /api/tenants/{tenant_id}/projects/{project_id}/jobs | CSV 업로드(multipart: file, job_type, notes) 후 작업 등록 |
+| GET | /api/tenants/{tenant_id}/jobs | 작업 목록 (project_id, status 필터) |
+| GET | /api/tenants/{tenant_id}/jobs/{job_id} | 작업 상세와 상태 이력 |
 
 목록은 offset(기본 0), limit(기본 20, 최대 100)을 지원합니다.
 조직 소속을 매번 검증하고 타 조직과 없는 리소스 모두 404를 반환합니다.
@@ -92,6 +99,20 @@ Compose는 로컬 포트 설정을 Origin 허용 목록에 반영합니다.
 로그인 시도 제한, 세션 정기 정리와 실제 계정 발급을 적용해야 합니다.
 공개된 데모 비밀번호는 배포 환경에 사용하지 않습니다.
 
+## CSV 업로드 정책
+
+- 확장자 .csv, UTF-8(BOM 허용), 10MB 이하(MAX_UPLOAD_BYTES). 빈 파일·바이너리는 422, 초과는 413.
+- Content-Length가 한도를 넘으면 본문을 읽기 전에 413으로 거절합니다. 배포 시 Ingress에도 본문 크기 제한을 둡니다.
+- 처리 유형: validation(검증), cleansing(정제), transformation(변환), aggregation(집계).
+- 저장 경로는 {tenant_id}/{project_id}/{file_id}.csv이며 사용자가 보낸 파일 이름은 경로에 쓰지 않습니다.
+  원본 이름과 SHA-256 해시는 uploaded_files에 저장합니다.
+- 저장소 장애 시 503을 반환하고 DB에는 아무것도 기록하지 않습니다.
+  DB 기록이 실패하면 방금 올린 Blob을 삭제합니다. 삭제마저 실패하면 orphan_blob 로그를 남깁니다.
+- 업로드 시점에는 형식만 가볍게 확인하고, 행 단위 검증은 Worker가 담당합니다.
+
+로컬 저장소는 Azure Storage 에뮬레이터 Azurite입니다. Compose의 AccountKey는 Azurite에 고정된 공개 개발용 키입니다.
+Azure 배포 시 AZURE_STORAGE_CONNECTION_STRING만 실제 Storage Account로 바꾸면 같은 코드가 동작합니다.
+
 ## 검증
 
 ```powershell
@@ -107,6 +128,8 @@ docker compose exec api alembic check
 일반 DB와 데모 데이터에는 영향을 주지 않습니다. 테스트 DB 중지 시 테스트 데이터는 사라집니다.
 마이그레이션과 모델 일치, 로그인 실패·세션 만료·폐기·교체, Origin 검증,
 타 조직 목록·상세·생성 차단, 중복·빈 이름·페이지 조회를 검증합니다.
+업로드 테스트는 메모리 저장소를 주입해 Azurite 없이 실행하며, 타 조직 업로드·조회 차단,
+형식·인코딩·크기 거절, 저장소 장애 503, DB 실패 시 Blob 정리, 상태 이력을 검증합니다.
 
 ## 개발과 종료
 
@@ -118,7 +141,7 @@ docker compose logs --tail 100 api
 docker compose down
 ```
 
-down은 일반 DB 볼륨을 보존합니다. down -v는 DB 데이터를 삭제하므로 초기화 시에만 사용합니다.
+down은 DB와 Azurite 볼륨을 보존합니다. down -v는 DB 데이터와 업로드 파일을 삭제하므로 초기화 시에만 사용합니다.
 이미 생성된 DB의 계정은 .env 수정만으로 변경되지 않습니다.
 
 프런트엔드만 로컬 개발할 때는 Node.js 24 환경에서:
@@ -139,8 +162,8 @@ Vite 컨테이너는 개발용이며 배포 시 정적 빌드 제공 방식으�
 
 ## 다음 단계와 운영 모니터링
 
-1. 파일·작업 모델과 CSV 업로드
-2. 별도 Worker 처리·재시도·복구
+1. 별도 Worker 처리·재시도·복구 (queued 작업을 SKIP LOCKED로 가져감)
+2. 결과 파일 다운로드
 3. 결과·이력과 운영 대시보드
 4. Terraform + Azure AKS / ACR / PostgreSQL / Blob Storage
 
@@ -149,10 +172,12 @@ Vite 컨테이너는 개발용이며 배포 시 정적 빌드 제공 방식으�
 업로드는 저장 완료 시각, 처리 실적은 최종 완료 시각으로 기간 집계하고
 재시도 오류는 실행 이력으로 구분합니다. 대기·처리 중은 현재 수치입니다.
 
-후속 단계에서 JSON 로그와 요청 ID / 작업 ID를 도입합니다.
+jobs 테이블에는 처리 시간, 행 수, 오류 코드, 시도 횟수, 요청 ID 열이 이미 있어 Worker가 채웁니다.
+후속 단계에서 JSON 로그를 도입합니다.
 Azure에서는 메트릭을 Prometheus / Grafana, 컨테이너 로그를 Azure Monitor / Log Analytics에 연결합니다.
 작업 ID·사용자 ID는 Prometheus 라벨로 사용하지 않습니다.
 현재 health API만 구현됐으며 메트릭 수집·운영 집계·경보는 아직 구현하지 않았습니다.
+
 ## 계정 정보 변경 (로컬 관리자)
 
 프로젝트 루트의 대화형 터미널에서 다음 명령을 실행합니다.

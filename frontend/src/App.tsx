@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { api, ApiError, type Project, type ProjectPage, type Tenant, type User } from './api'
+import { api, ApiError, errorMessage as message, type Project, type ProjectPage, type Tenant, type User } from './api'
+import { JobDetailPanel, JobTable, UploadForm } from './jobs'
+import { useJobs } from './useJobs'
 import './App.css'
-
-const message = (error: unknown) => error instanceof Error ? error.message : '요청을 처리하지 못했습니다.'
 
 function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [email, setEmail] = useState('')
@@ -28,6 +28,16 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
   </main>
 }
 
+function ProjectJobs({ tenantId, projectId, refreshKey, onExpired, onOpen }: {
+  tenantId: string; projectId: string; refreshKey: number; onExpired: () => void; onOpen: (id: string) => void
+}) {
+  const { data, error } = useJobs(tenantId, projectId, refreshKey, onExpired)
+  if (error) return <p role="alert" className="error">{error}</p>
+  if (!data) return <p role="status">작업 불러오는 중…</p>
+  if (data.total === 0) return <p className="empty">이 프로젝트에 업로드한 CSV가 없습니다.</p>
+  return <JobTable jobs={data.items} onOpen={onOpen} />
+}
+
 function Workspace({ tenant, onExpired }: { tenant: Tenant; onExpired: () => void }) {
   const [page, setPage] = useState<'dashboard' | 'projects'>('dashboard')
   const [data, setData] = useState<ProjectPage | null>(null)
@@ -40,7 +50,10 @@ function Workspace({ tenant, onExpired }: { tenant: Tenant; onExpired: () => voi
   const [description, setDescription] = useState('')
   const [selected, setSelected] = useState<Project | null>(null)
   const [detailBusy, setDetailBusy] = useState(false)
+  const [jobsRevision, setJobsRevision] = useState(0)
+  const [openJobId, setOpenJobId] = useState<string | null>(null)
   const path = `/tenants/${tenant.id}/projects`
+  const recentJobs = useJobs(tenant.id, undefined, jobsRevision, onExpired)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -71,6 +84,9 @@ function Workspace({ tenant, onExpired }: { tenant: Tenant; onExpired: () => voi
     catch (error) { handleError(error) }
     finally { setDetailBusy(false) }
   }
+  function uploaded(fileName: string) {
+    setError(''); setNotice(`"${fileName}" 파일을 업로드하고 처리 대기열에 등록했습니다.`); setJobsRevision(v => v + 1)
+  }
   return <>
     <nav className="page-tabs" aria-label="페이지">
       <button className={page === 'dashboard' ? 'active' : 'secondary'} onClick={() => setPage('dashboard')}>대시보드</button>
@@ -82,10 +98,16 @@ function Workspace({ tenant, onExpired }: { tenant: Tenant; onExpired: () => voi
     {page === 'dashboard' && <>
       <section className="cards">
         <article><p>프로젝트</p><strong>{data?.total ?? '—'}</strong><small>현재 조직의 저장된 프로젝트</small></article>
-        <article><p>처리 작업</p><strong>—</strong><small>CSV 처리 기능 준비 중</small></article>
-        <article><p>성공률</p><strong>—</strong><small>운영 지표 집계 준비 중</small></article>
+        <article><p>처리 작업</p><strong>{recentJobs.data?.total ?? '—'}</strong><small>업로드로 등록된 전체 작업</small></article>
+        <article><p>성공률</p><strong>—</strong><small>Worker 연결 후 집계</small></article>
       </section>
-      <p className="demo-note">업로드·처리 현황과 최근 오류는 후속 단계에서 연결됩니다. 현재 처리 실적은 집계하지 않습니다.</p>
+      <section className="panel recent-jobs">
+        <div className="panel-title"><h3>최근 처리 작업</h3><span>{recentJobs.data ? `${recentJobs.data.total}건` : '조회 중'}</span></div>
+        {recentJobs.error && <p role="alert" className="error">{recentJobs.error}</p>}
+        {recentJobs.data?.total === 0 && <p className="empty">아직 업로드한 CSV가 없습니다. 프로젝트 상세에서 CSV를 업로드하세요.</p>}
+        {recentJobs.data && recentJobs.data.items.length > 0 && <JobTable jobs={recentJobs.data.items} showProject onOpen={setOpenJobId} />}
+      </section>
+      <p className="demo-note">CSV 처리 Worker는 다음 단계에서 연결됩니다. 지금은 업로드한 작업이 대기 상태로 표시됩니다.</p>
     </>}
     {page === 'projects' && <form className="panel project-form" onSubmit={create}>
       <h3>프로젝트 만들기</h3>
@@ -103,7 +125,12 @@ function Workspace({ tenant, onExpired }: { tenant: Tenant; onExpired: () => voi
       {data && data.total > 20 && <div className="pagination"><button disabled={offset === 0} onClick={() => { setOffset(v => v - 20); setData(null) }}>이전</button><span>{Math.floor(offset / 20) + 1} 페이지</span><button disabled={offset + 20 >= data.total} onClick={() => { setOffset(v => v + 20); setData(null) }}>다음</button></div>}
     </section>
     {detailBusy && <p role="status">프로젝트 상세 조회 중…</p>}
-    {selected && <section className="panel detail" aria-label="프로젝트 상세"><div className="panel-title"><h3>{selected.name}</h3><button className="secondary" onClick={() => setSelected(null)}>상세 닫기</button></div><p>{selected.description || '등록된 설명이 없습니다.'}</p><p className="subtext">생성: {new Date(selected.created_at).toLocaleString('ko-KR')}</p><p className="demo-note">CSV 업로드는 다음 단계에서 제공됩니다.</p></section>}
+    {selected && <section className="panel detail" aria-label="프로젝트 상세"><div className="panel-title"><h3>{selected.name}</h3><button className="secondary" onClick={() => setSelected(null)}>상세 닫기</button></div><p>{selected.description || '등록된 설명이 없습니다.'}</p><p className="subtext">생성: {new Date(selected.created_at).toLocaleString('ko-KR')}</p>
+      <UploadForm tenantId={tenant.id} projectId={selected.id} onUploaded={uploaded} onError={handleError} />
+      <h4>이 프로젝트의 작업</h4>
+      <ProjectJobs tenantId={tenant.id} projectId={selected.id} refreshKey={jobsRevision} onExpired={onExpired} onOpen={setOpenJobId} />
+    </section>}
+    {openJobId && <JobDetailPanel key={openJobId} tenantId={tenant.id} jobId={openJobId} onClose={() => setOpenJobId(null)} onExpired={onExpired} />}
   </>
 }
 
