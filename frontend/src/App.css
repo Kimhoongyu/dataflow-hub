@@ -1,0 +1,105 @@
+* { box-sizing: border-box; }
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  background: #f6f8fb;
+  color: #172033;
+}
+
+.sidebar {
+  width: 250px;
+  min-height: 100vh;
+  padding: 32px 22px;
+  background: #111c35;
+  color: #dbe5ff;
+}
+
+.sidebar h1 { margin: 0; font-size: 23px; color: white; }
+.sidebar h1 span { color: #75a7ff; }
+.workspace { margin: 42px 10px 25px; font-size: 11px; line-height: 1.8; color: #8fa3c9; }
+.workspace strong { font-size: 13px; color: white; }
+
+nav { display: grid; gap: 8px; }
+nav a {
+  padding: 12px 14px;
+  border-radius: 8px;
+  color: #b9c8e8;
+  text-decoration: none;
+  font-size: 14px;
+}
+nav a.active, nav a:hover { background: #243c70; color: white; }
+
+.sidebar-footer {
+  position: absolute;
+  bottom: 32px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #8fa3c9;
+}
+.sidebar-footer strong { color: white; }
+
+.content { width: min(1180px, 100%); margin: 0 auto; padding: 54px; }
+header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 36px; }
+.eyebrow { margin: 0 0 8px; color: #477ae4; font-size: 12px; font-weight: 800; letter-spacing: .12em; }
+h2 { margin: 0; font-size: 30px; }
+.subtext { color: #6d7789; margin: 8px 0 0; }
+
+button {
+  border: 0; border-radius: 8px; padding: 13px 18px;
+  background: #2864d7; color: white; font-weight: 700; cursor: pointer;
+}
+
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 26px; }
+.cards article, .panel { background: white; border: 1px solid #e4e9f1; border-radius: 12px; }
+.cards article { padding: 22px; }
+.cards p { margin: 0; color: #6d7789; font-size: 14px; }
+.cards strong { display: block; margin: 12px 0 5px; font-size: 29px; }
+.cards small { color: #299c68; }
+
+.panel { padding: 24px; }
+.panel-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+.panel-title h3 { margin: 0; font-size: 18px; }
+.panel-title p { margin: 5px 0 0; }
+.panel-title a { color: #2864d7; text-decoration: none; font-size: 14px; font-weight: 700; }
+
+.row { display: grid; grid-template-columns: 2fr 1.3fr 1fr 1.2fr; gap: 12px; align-items: center; padding: 17px 12px; border-top: 1px solid #edf0f5; font-size: 14px; }
+.row span { color: #687488; }
+.heading { padding-top: 10px; color: #8b96a8; font-size: 11px; font-weight: 800; }
+.heading span { color: inherit; }
+
+.status { width: fit-content; padding: 5px 9px; border-radius: 99px; font-size: 12px; font-weight: 700; }
+.status.completed { color: #15764b; background: #e2f7ed; }
+.status.processing { color: #a56600; background: #fff3d7; }
+.status.queued { color: #426aa9; background: #eaf1ff; }
+button.secondary { background: #eef2f8; color: #3a4558; }
+
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 10;
+  display: grid; place-items: center; padding: 16px;
+  background: rgba(17, 28, 53, .45);
+}
+.modal {
+  width: min(460px, 100%); display: grid; gap: 16px;
+  padding: 28px; border-radius: 12px; background: white;
+  box-shadow: 0 20px 50px rgba(17, 28, 53, .25);
+}
+.modal h3 { margin: 0; font-size: 20px; }
+.modal-subtext { margin: -10px 0 4px; color: #6d7789; font-size: 14px; }
+.modal label { display: grid; gap: 6px; font-size: 13px; font-weight: 700; color: #3a4558; }
+.modal label small { font-weight: 400; color: #8b96a8; }
+.modal input, .modal select, .modal textarea {
+  width: 100%; padding: 10px 12px; border: 1px solid #d5dce8; border-radius: 8px;
+  font: inherit; font-weight: 400; color: #172033; background: white;
+}
+.modal input:focus, .modal select:focus, .modal textarea:focus { outline: 2px solid #9dbcf5; border-color: #2864d7; }
+.modal [aria-invalid="true"] { border-color: #d64545; }
+.field-error { color: #d64545; font-size: 12px; font-weight: 400; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+
+.toast {
+  position: fixed; right: 24px; bottom: 24px; z-index: 20;
+  padding: 12px 18px; border-radius: 8px;
+  background: #15764b; color: white; font-size: 14px; font-weight: 600;
+  box-shadow: 0 10px 30px rgba(17, 28, 53, .2);
+}
