@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: dataflow
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: dataflow-hub
+    includeSelectors: false
+resources:
+  - namespace.yaml
+  - config.yaml
+  - migrate-job.yaml
+  - api.yaml
+  - worker.yaml
+  - frontend.yaml
+  - ingress.yaml
+# Secret `dataflow-secrets` is not stored in git: overlays generate it (local) or it is
+# created from Terraform outputs (ncp). Keys: POSTGRES_USER, POSTGRES_PASSWORD, S3_ACCESS_KEY, S3_SECRET_KEY.

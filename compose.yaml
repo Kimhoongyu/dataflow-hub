@@ -125,7 +125,9 @@ services:
         condition: service_healthy
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      target: dev
     environment:
       API_PROXY_TARGET: http://api:8000
     ports:

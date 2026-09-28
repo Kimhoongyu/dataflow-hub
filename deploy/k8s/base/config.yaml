@@ -1,0 +1,24 @@
+# Non-secret settings shared by the API, the worker and the migration job. Overlays patch the
+# environment-specific values (DB host, storage endpoint, allowed origins).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dataflow-config
+data:
+  # Fully qualified: KEDA's operator (another namespace) connects with the same value.
+  POSTGRES_HOST: postgres.dataflow.svc.cluster.local
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: dataflow_hub
+  POSTGRES_SSLMODE: prefer
+  S3_ENDPOINT_URL: http://s3:8333
+  S3_REGION: kr-standard
+  S3_BUCKET: uploads
+  S3_MAX_ATTEMPTS: "2"
+  ALLOWED_ORIGINS: http://localhost:8080
+  COOKIE_SECURE: "false"
+  MAX_UPLOAD_BYTES: "10485760"
+  DASHBOARD_TIMEZONE: Asia/Seoul
+  LOG_FORMAT: json
+  LOG_LEVEL: INFO
+  WORKER_STALE_SECONDS: "60"
+  WORKER_MAX_ATTEMPTS: "3"

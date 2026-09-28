@@ -1,0 +1,42 @@
+# Naver Cloud (NKS). Environment values come from Terraform:
+#   generated/config.env  -> merged into dataflow-config (DB host, bucket, domain)
+#   generated/secret.env  -> dataflow-secrets (DB and Object Storage credentials)
+# Both files are written by `terraform apply` (infra/terraform) and are git-ignored.
+# The image tag is set per release: kustomize edit set image dataflow-hub-api=...:<git sha>
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: dataflow
+resources:
+  - ../../base
+configMapGenerator:
+  - name: dataflow-config
+    behavior: merge
+    envs: [generated/config.env]
+    literals:
+      - POSTGRES_SSLMODE=require
+      - S3_ENDPOINT_URL=https://kr.object.ncloudstorage.com
+      - S3_REGION=kr-standard
+      - COOKIE_SECURE=true
+    options: {disableNameSuffixHash: true}
+secretGenerator:
+  - name: dataflow-secrets
+    envs: [generated/secret.env]
+    options: {disableNameSuffixHash: true}
+images:
+  # Container Registry is created in the NCP console (no Terraform resource); endpoint format
+  # <registry-name>.kr.ncr.ntruss.com. CI pushes <git sha> tags and updates newTag.
+  - {name: dataflow-hub-api, newName: dataflow-hub.kr.ncr.ntruss.com/dataflow-hub-api, newTag: latest}
+  - {name: dataflow-hub-frontend, newName: dataflow-hub.kr.ncr.ntruss.com/dataflow-hub-frontend, newTag: latest}
+patches:
+  - path: ingress-alb.yaml
+  # The NCP ALB Ingress Controller registers NodePort services as target groups.
+  - target: {kind: Service, name: "api|frontend"}
+    patch: |
+      - {op: add, path: /spec/type, value: NodePort}
+  # Pull from the private registry with a docker-registry secret named `ncr` (see README).
+  - target: {kind: Deployment, name: "api|worker|frontend"}
+    patch: |
+      - {op: add, path: /spec/template/spec/imagePullSecrets, value: [{name: ncr}]}
+  - target: {kind: Job, name: migrate}
+    patch: |
+      - {op: add, path: /spec/template/spec/imagePullSecrets, value: [{name: ncr}]}

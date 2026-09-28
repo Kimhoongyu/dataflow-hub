@@ -1,0 +1,35 @@
+# Local cluster (kind) for trying the manifests end to end: in-cluster PostgreSQL and
+# SeaweedFS stand in for NCP Cloud DB and Object Storage. See deploy/k8s/README.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: dataflow
+resources:
+  - ../../base
+  - postgres.yaml
+  - s3.yaml
+secretGenerator:
+  # Local-only values, same as compose.yaml / deploy/local/seaweedfs-s3.json.
+  - name: dataflow-secrets
+    literals:
+      - POSTGRES_USER=dataflow
+      - POSTGRES_PASSWORD=dataflow_local_only
+      - S3_ACCESS_KEY=dataflow-local
+      - S3_SECRET_KEY=dataflow-local-secret
+    options: {disableNameSuffixHash: true}
+images:
+  - {name: dataflow-hub-api, newTag: local}
+  - {name: dataflow-hub-frontend, newTag: local}
+patches:
+  - target: {kind: ConfigMap, name: dataflow-config}
+    patch: |
+      - {op: replace, path: /data/ALLOWED_ORIGINS, value: "http://localhost:18088"}
+  - target: {kind: Ingress, name: dataflow}
+    patch: |
+      - {op: add, path: /spec/ingressClassName, value: nginx}
+  # One replica each is enough on a laptop.
+  - target: {kind: HorizontalPodAutoscaler, name: api}
+    patch: |
+      - {op: replace, path: /spec/minReplicas, value: 1}
+  - target: {kind: Deployment, name: frontend}
+    patch: |
+      - {op: replace, path: /spec/replicas, value: 1}

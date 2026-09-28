@@ -75,6 +75,13 @@ jobs:
         run: |
           docker run --rm --entrypoint promtool -v "$PWD/monitoring/prometheus:/p:ro" prom/prometheus:v3.3.0 check rules /p/alerts.yml
           docker run --rm --entrypoint promtool -v "$PWD/monitoring/prometheus:/etc/prometheus:ro" prom/prometheus:v3.3.0 check config /etc/prometheus/prometheus.yml
+      - name: Render and validate Kubernetes manifests
+        run: |
+          # The ncp overlay reads Terraform-generated env files; validate it with the examples.
+          for f in config secret; do cp deploy/k8s/overlays/ncp/generated/$f.env.example deploy/k8s/overlays/ncp/generated/$f.env; done
+          for overlay in local ncp; do
+            kubectl kustomize deploy/k8s/overlays/$overlay               | docker run --rm -i ghcr.io/yannh/kubeconform:v0.6.7 -strict -summary -kubernetes-version 1.32.0 -
+          done
 
   images:
     name: Build images
@@ -95,6 +102,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: frontend
+          target: runtime
           push: false
           tags: dataflow-hub-frontend:ci
           cache-from: type=gha,scope=frontend

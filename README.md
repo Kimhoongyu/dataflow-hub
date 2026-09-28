@@ -16,7 +16,8 @@
 - 작업 목록·상세·상태 이력 조회, 결과 CSV 다운로드, 대시보드 최근 작업
 - 운영 모니터링 대시보드: 기간별 업로드·성공·실패·성공률·처리 시간, 처리 추이, 프로젝트별 현황, 최근 오류, Worker·대기열 상태
 - JSON 구조화 로그(요청 ID로 API↔Worker 연결), Prometheus 메트릭, 로컬 Prometheus·Grafana, 알림 규칙
-- GitHub Actions CI: 백엔드 테스트(PostgreSQL), 프론트엔드 lint·빌드, 설정 검증, 이미지 빌드
+- GitHub Actions CI: 백엔드 테스트(PostgreSQL), 프론트엔드 lint·빌드, 설정·매니페스트 검증, 이미지 빌드
+- Kubernetes 매니페스트(kustomize): 로컬 kind 클러스터에서 동작 검증, NCP NKS용 overlay, KEDA Worker 자동 확장
 - 요청 ID(X-Request-ID)를 작업에 저장해 업로드 요청과 로그를 연결
 - Docker Compose 로컬 실행과 별도 DB 기반 통합 테스트
 
@@ -74,6 +75,7 @@ backend/migrations/   Alembic 변경 이력
 backend/tests/        인증·조직 격리·업로드 통합 테스트
 compose.yaml          앱·Worker·DB·S3(SeaweedFS)·마이그레이션, 선택적 테스트 서비스
 deploy/local/         로컬 SeaweedFS S3 인증 설정
+deploy/k8s/           Kubernetes 매니페스트 (base, overlays/local·ncp, components/keda) — deploy/k8s/README.md
 monitoring/           Prometheus 설정·알림 규칙, Grafana 데이터 소스·대시보드
 .github/workflows/    CI
 .env.example          로컬 설정 예시
@@ -278,12 +280,17 @@ docker compose --profile monitoring up -d
 - **backend:** PostgreSQL 서비스 컨테이너로 pytest를 실행합니다(마이그레이션 적용과 모델 일치 검사 포함).
 - **frontend:** npm ci, lint, build를 실행합니다.
 - **config:** Compose 설정을 검증하고, promtool로 Prometheus 설정과 알림 규칙을 검사합니다.
-- **images:** API·Frontend 이미지를 빌드합니다. NCP Container Registry push는 배포 단계에서 추가합니다.
+- **config** 단계에서는 Kubernetes 매니페스트(local, ncp overlay)를 렌더링하고 kubeconform으로 스키마도 검사합니다.
+- **images:** API·Frontend 배포용 이미지를 빌드합니다. NCP Container Registry push는 배포 단계에서 추가합니다.
+
+Frontend 이미지는 Dockerfile target이 두 개입니다.
+- `dev`: Vite 개발 서버. Compose가 사용합니다.
+- `runtime`: 빌드된 정적 파일을 nginx(비 root, 8080)로 제공합니다. 배포용입니다.
 
 ## 다음 단계
 
-1. 배포용 이미지 정리 (프론트엔드 정적 빌드 + nginx), Kubernetes 매니페스트
-2. Terraform으로 네이버 클라우드(NCP) 배포, CI에서 Container Registry push
+1. Terraform으로 네이버 클라우드(NCP) 인프라 생성
+2. CI에서 Container Registry push 후 NKS 배포(CD)
 
 | 구성 요소 | 로컬 (Compose) | NCP |
 | --- | --- | --- |

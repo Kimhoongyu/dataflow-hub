@@ -1,0 +1,50 @@
+# Throwaway in-cluster S3 (SeaweedFS) for local testing only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: seaweedfs-s3
+data:
+  s3.json: |
+    {"identities": [{"name": "dataflow-local",
+      "credentials": [{"accessKey": "dataflow-local", "secretKey": "dataflow-local-secret"}],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]}]}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: s3
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: s3}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: s3}
+    spec:
+      containers:
+        - name: seaweedfs
+          image: chrislusf/seaweedfs:3.85
+          args: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json",
+                 "-master.volumeSizeLimitMB=64", "-volume.max=8"]
+          ports:
+            - {name: s3, containerPort: 8333}
+          readinessProbe:
+            tcpSocket: {port: s3}
+            periodSeconds: 5
+          volumeMounts:
+            - {name: config, mountPath: /etc/seaweedfs}
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: config
+          configMap: {name: seaweedfs-s3}
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: s3
+spec:
+  selector: {app.kubernetes.io/name: s3}
+  ports:
+    - {name: s3, port: 8333, targetPort: s3}

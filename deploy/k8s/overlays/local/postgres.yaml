@@ -1,0 +1,41 @@
+# Throwaway in-cluster PostgreSQL for local testing only (emptyDir: data is lost with the pod).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: postgres}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: postgres}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            - {name: POSTGRES_DB, value: dataflow_hub}
+            - name: POSTGRES_USER
+              valueFrom: {secretKeyRef: {name: dataflow-secrets, key: POSTGRES_USER}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: dataflow-secrets, key: POSTGRES_PASSWORD}}
+          ports:
+            - {name: postgres, containerPort: 5432}
+          readinessProbe:
+            exec: {command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d dataflow_hub"]}
+            periodSeconds: 5
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector: {app.kubernetes.io/name: postgres}
+  ports:
+    - {name: postgres, port: 5432, targetPort: postgres}

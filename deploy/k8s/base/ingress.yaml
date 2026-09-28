@@ -1,0 +1,18 @@
+# One host: /api goes to the API, everything else to the static frontend, so the browser
+# stays same-origin (cookies, Origin check). /metrics is intentionally not routed.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: dataflow
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: {name: api, port: {name: http}}
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: frontend, port: {name: http}}

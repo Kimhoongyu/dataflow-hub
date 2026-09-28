@@ -1,0 +1,35 @@
+# Connection details come from the app's own ConfigMap/Secret, so KEDA queries the same DB.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: worker-postgres
+spec:
+  configMapTargetRef:
+    - {parameter: host, name: dataflow-config, key: POSTGRES_HOST}
+    - {parameter: port, name: dataflow-config, key: POSTGRES_PORT}
+    - {parameter: dbName, name: dataflow-config, key: POSTGRES_DB}
+    - {parameter: sslmode, name: dataflow-config, key: POSTGRES_SSLMODE}
+  secretTargetRef:
+    - {parameter: userName, name: dataflow-secrets, key: POSTGRES_USER}
+    - {parameter: password, name: dataflow-secrets, key: POSTGRES_PASSWORD}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker
+spec:
+  scaleTargetRef: {name: worker}
+  minReplicaCount: 1
+  maxReplicaCount: 5
+  pollingInterval: 15
+  # Scale down slowly so a short lull does not interrupt a batch of uploads.
+  cooldownPeriod: 300
+  triggers:
+    - type: postgresql
+      authenticationRef: {name: worker-postgres}
+      metadata:
+        # Same condition the worker uses to claim a job; about 10 runnable jobs per worker.
+        query: >-
+          SELECT count(*) FROM jobs
+          WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+        targetQueryValue: "10"

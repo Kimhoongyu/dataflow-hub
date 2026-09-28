@@ -1,0 +1,43 @@
+# Scaled on queue length by KEDA when the `keda` component is enabled (see components/keda).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: worker}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: worker}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9100"
+        prometheus.io/path: /metrics
+    spec:
+      # SIGTERM lets the current job finish; give it longer than a slow job attempt.
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: worker
+          image: dataflow-hub-api
+          command: ["python", "-m", "worker.main"]
+          ports:
+            - {name: metrics, containerPort: 9100}
+          envFrom:
+            - configMapRef: {name: dataflow-config}
+            - secretRef: {name: dataflow-secrets}
+          # Only proves the process is alive; stuck jobs are handled by heartbeat recovery.
+          livenessProbe:
+            httpGet: {path: /metrics, port: metrics}
+            periodSeconds: 20
+            timeoutSeconds: 3
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 768Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}

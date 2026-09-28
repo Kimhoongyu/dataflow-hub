@@ -1,0 +1,7 @@
+# Optional: scale workers on the number of runnable queued jobs. Requires KEDA in the cluster
+# (helm install keda kedacore/keda -n keda --create-namespace). Enable in an overlay with:
+#   components: [../../components/keda]
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - scaledobject.yaml

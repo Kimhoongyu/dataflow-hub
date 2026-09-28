@@ -1,0 +1,34 @@
+# Run before rolling out a new API version (Job specs are immutable: delete, then apply):
+#   kubectl -n dataflow delete job migrate --ignore-not-found && kubectl apply -k <overlay>
+#   kubectl -n dataflow wait --for=condition=complete job/migrate --timeout=120s
+# A single Job avoids several API replicas racing to run the same migration.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: migrate
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: migrate
+          image: dataflow-hub-api
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - configMapRef: {name: dataflow-config}
+            - secretRef: {name: dataflow-secrets}
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 256Mi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}

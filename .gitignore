@@ -32,3 +32,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 *.tsbuildinfo
+
+# Environment values written by Terraform (contain secrets)
+deploy/k8s/overlays/ncp/generated/*.env
