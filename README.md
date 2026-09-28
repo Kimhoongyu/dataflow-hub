@@ -76,6 +76,7 @@ backend/tests/        인증·조직 격리·업로드 통합 테스트
 compose.yaml          앱·Worker·DB·S3(SeaweedFS)·마이그레이션, 선택적 테스트 서비스
 deploy/local/         로컬 SeaweedFS S3 인증 설정
 deploy/k8s/           Kubernetes 매니페스트 (base, overlays/local·ncp, components/keda) — deploy/k8s/README.md
+infra/terraform/      NCP 인프라 (VPC·NKS·Cloud DB·Object Storage) — infra/terraform/README.md
 monitoring/           Prometheus 설정·알림 규칙, Grafana 데이터 소스·대시보드
 .github/workflows/    CI
 .env.example          로컬 설정 예시
@@ -281,6 +282,7 @@ docker compose --profile monitoring up -d
 - **frontend:** npm ci, lint, build를 실행합니다.
 - **config:** Compose 설정을 검증하고, promtool로 Prometheus 설정과 알림 규칙을 검사합니다.
 - **config** 단계에서는 Kubernetes 매니페스트(local, ncp overlay)를 렌더링하고 kubeconform으로 스키마도 검사합니다.
+- **terraform:** `fmt -check`와 `validate`를 실행합니다. 자격 증명은 필요 없습니다.
 - **images:** API·Frontend 배포용 이미지를 빌드합니다. NCP Container Registry push는 배포 단계에서 추가합니다.
 
 Frontend 이미지는 Dockerfile target이 두 개입니다.
@@ -289,7 +291,7 @@ Frontend 이미지는 Dockerfile target이 두 개입니다.
 
 ## 다음 단계
 
-1. Terraform으로 네이버 클라우드(NCP) 인프라 생성
+1. NCP 계정으로 `terraform plan`·`apply` 실행 (코드는 준비됨: infra/terraform)
 2. CI에서 Container Registry push 후 NKS 배포(CD)
 
 | 구성 요소 | 로컬 (Compose) | NCP |
