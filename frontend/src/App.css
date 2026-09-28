@@ -1,5 +1,30 @@
 * { box-sizing: border-box; }
 
+.sidebar { flex: 0 0 250px; }
+.page-tabs { display: flex; gap: 8px; margin-bottom: 32px; }
+.project-form { display: grid; gap: 16px; margin-bottom: 24px; }
+.project-form h3 { margin: 0; }
+.project-form button { justify-self: start; }
+label { display: grid; gap: 8px; font-size: 14px; font-weight: 600; }
+input, textarea, select { width: 100%; padding: 11px 12px; border: 1px solid #d5dce8; border-radius: 8px; color: #172033; background: white; }
+.error { color: #a52222; background: #fff0f0; padding: 14px; border-radius: 8px; margin-bottom: 16px; }
+.notice { color: #15764b; background: #e2f7ed; padding: 14px; border-radius: 8px; }
+.demo-note, .empty { color: #687488; font-size: 14px; line-height: 1.7; }
+.demo-note { margin: 20px 0; }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+th, td { padding: 16px 10px; border-bottom: 1px solid #edf0f5; overflow-wrap: anywhere; max-width: 340px; }
+th { color: #687488; font-size: 12px; }
+button.text-button { background: transparent; color: #2864d7; padding: 0; text-align: left; overflow-wrap: anywhere; }
+.pagination { display: flex; gap: 16px; align-items: center; margin-top: 20px; justify-content: flex-end; }
+.detail { margin-top: 24px; overflow-wrap: anywhere; }
+.login-page { min-height: 100vh; display: grid; grid-template-columns: 1fr 1fr; align-items: center; gap: 70px; max-width: 1100px; margin: auto; padding: 48px; }
+.login-brand h1 { font-size: clamp(28px, 3.4vw, 44px); line-height: 1.4; letter-spacing: -1px; }
+.login-brand > p:last-child { color: #687488; line-height: 1.8; }
+.login-card { background: white; border: 1px solid #e4e9f1; border-radius: 16px; padding: 36px; display: grid; gap: 22px; box-shadow: 0 12px 40px #17203308; }
+.login-card small { color: #687488; line-height: 1.6; }
+.loading { padding: 80px; text-align: center; }
+
 .app {
   min-height: 100vh;
   display: flex;
@@ -8,6 +33,8 @@
 }
 
 .sidebar {
+  display: flex;
+  flex-direction: column;
   width: 250px;
   min-height: 100vh;
   padding: 32px 22px;
@@ -31,13 +58,17 @@ nav a {
 nav a.active, nav a:hover { background: #243c70; color: white; }
 
 .sidebar-footer {
-  position: absolute;
-  bottom: 32px;
+  margin-top: auto;
+  overflow-wrap: anywhere;
   font-size: 12px;
   line-height: 1.8;
   color: #8fa3c9;
 }
 .sidebar-footer strong { color: white; }
+.sidebar-footer button { margin-top: 16px; }
+.sidebar-description { color: #8fa3c9; font-size: 14px; line-height: 1.8; }
+.workspace { display: grid; gap: 8px; margin-inline: 0; }
+.content { min-width: 0; }
 
 .content { width: min(1180px, 100%); margin: 0 auto; padding: 54px; }
 header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 36px; }
@@ -103,3 +134,6 @@ button.secondary { background: #eef2f8; color: #3a4558; }
   background: #15764b; color: white; font-size: 14px; font-weight: 600;
   box-shadow: 0 10px 30px rgba(17, 28, 53, .2);
 }
+
+@media (max-width: 900px) { .content { padding: 28px; } .sidebar { flex-basis: 215px; width: 215px; padding: 24px 16px; } .cards { grid-template-columns: 1fr; } .login-page { gap: 32px; padding: 28px; } }
+@media (max-width: 640px) { .app { flex-direction: column; } .sidebar { width: 100%; min-height: auto; flex-basis: auto; gap: 16px; } .workspace { margin: 0; } .sidebar-description { display: none; } .sidebar-footer { margin-top: 0; } .content { padding: 24px 16px; } .login-page { grid-template-columns: 1fr; padding: 24px; gap: 16px; } .login-card { padding: 24px; } }

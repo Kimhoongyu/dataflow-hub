@@ -17,24 +17,70 @@ services:
       start_period: 10s
 
   api:
-    build: ./backend
-    environment:
+    build:
+      context: ./backend
+      target: runtime
+    environment: &backend-env
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
       POSTGRES_DB: ${POSTGRES_DB:?Copy .env.example to .env}
       POSTGRES_USER: ${POSTGRES_USER:?Copy .env.example to .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      ALLOWED_ORIGINS: http://localhost:${FRONTEND_PORT:-5173},http://127.0.0.1:${FRONTEND_PORT:-5173},http://localhost:${API_PORT:-8000},http://127.0.0.1:${API_PORT:-8000}
+      COOKIE_SECURE: "false"
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/ready', timeout=8)"]
       interval: 10s
       timeout: 10s
       retries: 5
       start_period: 10s
+
+  migrate:
+    build:
+      context: ./backend
+      target: runtime
+    environment: *backend-env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  test-db:
+    image: postgres:17-alpine
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: dataflow_test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: local_test_only
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d dataflow_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  tests:
+    profiles: ["test"]
+    build:
+      context: ./backend
+      target: test
+    environment:
+      POSTGRES_HOST: test-db
+      POSTGRES_DB: dataflow_test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: local_test_only
+      ALLOWED_ORIGINS: http://localhost:5173
+    depends_on:
+      test-db:
+        condition: service_healthy
 
   frontend:
     build: ./frontend

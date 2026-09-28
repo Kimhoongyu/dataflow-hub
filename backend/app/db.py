@@ -1,6 +1,7 @@
 import os
 
 from sqlalchemy import URL, create_engine
+from sqlalchemy.orm import Session
 
 # URL.create safely handles passwords containing URL-reserved characters.
 database_url = URL.create(
@@ -19,3 +20,8 @@ engine = create_engine(
     pool_timeout=3,
     connect_args={"connect_timeout": 3, "options": "-c statement_timeout=3000"},
 )
+
+
+def get_db():
+    with Session(engine) as session:
+        yield session
