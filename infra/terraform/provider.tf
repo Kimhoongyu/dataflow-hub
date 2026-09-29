@@ -6,6 +6,11 @@ terraform {
       source  = "NaverCloudPlatform/ncloud"
       version = "~> 4.0"
     }
+    # 내 PC에 파일을 쓰는 provider (Kubernetes 설정 파일 생성용, k8s_files.tf)
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.5"
+    }
   }
 
   # state(Terraform 장부)는 NCP Object Storage에 보관 (S3 호환). 키는 AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY 환경 변수.
