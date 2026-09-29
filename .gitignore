@@ -42,3 +42,6 @@ infra/terraform/.terraform/
 *.tfstate.*
 infra/terraform/backend.hcl
 infra/terraform/terraform.tfvars
+
+# DB backups (backup/restore practice) — contain real data and password hashes
+backups/

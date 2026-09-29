@@ -39,6 +39,17 @@ DB 준비 → migrate 성공 → API 준비 → frontend 순서로 시작합니�
 migrate 컨테이너의 Exited (0)은 정상 완료입니다.
 seed는 명시적으로 실행하며 기존 계정·비밀번호·프로젝트를 덮어쓰지 않습니다.
 
+대시보드 시연과 백업·복구 연습용으로 과거 작업 이력을 만들 수 있습니다.
+
+```powershell
+docker compose exec api python -m app.demo_data --local            # 조직 3개, 작업 2,000건(최근 30일)
+docker compose exec api python -m app.demo_data --local --reset --jobs 20000 --days 90
+```
+
+- 로그인: demo-ops@dataflow.local / Demo-local-2026!
+- 완료·실패 상태의 작업만 만들어서 Worker가 처리하지 않습니다.
+- DB에만 기록하기 때문에, 데모 작업의 결과 다운로드는 404입니다.
+
 - 웹: http://localhost:5173
 - API 문서: http://localhost:8000/docs
 - 서버 상태: http://localhost:8000/api/health/live
