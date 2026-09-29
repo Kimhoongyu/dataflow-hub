@@ -16,7 +16,7 @@ resource "ncloud_subnet" "private_a" {
 resource "ncloud_subnet" "private_b" {
   vpc_no         = data.ncloud_vpc.main.id
   subnet         = "10.0.20.0/24"
-  zone           = "KR-2"
+  zone           = "KR-1"
   network_acl_no = data.ncloud_vpc.main.default_network_acl_no
   subnet_type    = "PRIVATE"
   name           = "tf-private-b"
