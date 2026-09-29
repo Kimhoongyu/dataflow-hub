@@ -1,3 +1,3 @@
 data "ncloud_objectstorage_bucket" "uploads" {
-  bucket_name = "khgtest1"
+  bucket_name = "khgtest"
 }
