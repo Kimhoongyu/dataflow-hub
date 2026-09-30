@@ -45,3 +45,8 @@ infra/terraform/terraform.tfvars
 
 # DB backups (backup/restore practice) — contain real data and password hashes
 backups/
+infra/terraform/tfplan
+*.tfplan
+
+# NKS 접속 설정 (클러스터 주소·인증 방식)
+infra/terraform/kubeconfig.yaml

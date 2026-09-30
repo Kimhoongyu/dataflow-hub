@@ -31,7 +31,7 @@ data "ncloud_nks_server_products" "node" {
 resource "ncloud_nks_cluster" "main" {
   name                = "tf-nks-cluster"
   hypervisor_code     = "KVM"
-  cluster_type        = "SVR.VNKS.STAND.C002.M004.G003"
+  cluster_type        = "SVR.VNKS.STAND.C002.M008.G003" # NCP가 실제로 만든 타입(M004 요청 → M008 생성)
   login_key_name      = "test"
   kube_network_plugin = "cilium"
   k8s_version         = "1.34.3-nks.2"
@@ -50,6 +50,12 @@ resource "ncloud_nks_cluster" "main" {
   log {
     audit = false
   }
+
+  lifecycle {
+    # 클러스터 접근 권한(access_entries)은 콘솔에서 관리한다.
+    # 코드에 적으면 NCP 계정 번호가 공개 저장소에 올라가고, 비워 두면 apply 때 권한이 지워져 kubectl이 막힌다.
+    ignore_changes = [access_entries]
+  }
 }
 
 #노드풀
@@ -59,7 +65,7 @@ resource "ncloud_nks_node_pool" "main" {
   node_count       = 1
   server_spec_code = "s2-g3a"
   software_code    = data.ncloud_nks_server_images.ubuntu.images[0].value
-  storage_size     = 50
+  storage_size     = 100 # NCP 최소 디스크 크기(50 요청 → 100 생성)
 
   subnet_no_list = [
     ncloud_subnet.private_a.id
