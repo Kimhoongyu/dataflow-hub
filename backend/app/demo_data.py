@@ -54,7 +54,7 @@ def business_time(rng: random.Random, now: datetime, days: int) -> datetime:
         if weekend and rng.random() < 0.7:
             continue
         moment = day.replace(hour=int(min(max(hour, 0), 23.99)), minute=rng.randrange(60), second=rng.randrange(60))
-        if moment < now:
+        if now - timedelta(days=days) <= moment < now:  # stay inside the window after moving the hour
             return moment.astimezone(timezone.utc)
 
 
