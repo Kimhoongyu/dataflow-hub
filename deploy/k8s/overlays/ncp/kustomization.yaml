@@ -13,10 +13,12 @@ configMapGenerator:
     behavior: merge
     envs: [generated/config.env]
     literals:
-      - POSTGRES_SSLMODE=require
+      # Cloud DB의 SSL이 꺼져 있어 require면 접속이 거절된다. SSL을 켜면 require로 올린다.
+      - POSTGRES_SSLMODE=prefer
       - S3_ENDPOINT_URL=https://kr.object.ncloudstorage.com
       - S3_REGION=kr-standard
-      - COOKIE_SECURE=true
+      # HTTP로 먼저 확인하는 단계라 false. HTTPS(인증서)를 붙이면 true로 바꾼다.
+      - COOKIE_SECURE=false
     options: {disableNameSuffixHash: true}
 secretGenerator:
   - name: dataflow-secrets
@@ -25,8 +27,8 @@ secretGenerator:
 images:
   # Container Registry is created in the NCP console (no Terraform resource); endpoint format
   # <registry-name>.kr.ncr.ntruss.com. CI pushes <git sha> tags and updates newTag.
-  - {name: dataflow-hub-api, newName: dataflow-hub.kr.ncr.ntruss.com/dataflow-hub-api, newTag: latest}
-  - {name: dataflow-hub-frontend, newName: dataflow-hub.kr.ncr.ntruss.com/dataflow-hub-frontend, newTag: latest}
+  - {name: dataflow-hub-api, newName: khg-test.kr.ncr.ntruss.com/dataflow-hub-api, newTag: latest}
+  - {name: dataflow-hub-frontend, newName: khg-test.kr.ncr.ntruss.com/dataflow-hub-frontend, newTag: latest}
 patches:
   - path: ingress-alb.yaml
   # The NCP ALB Ingress Controller registers NodePort services as target groups.

@@ -7,10 +7,11 @@ metadata:
   annotations:
     alb.ingress.kubernetes.io/network-type: public
     alb.ingress.kubernetes.io/load-balancer-size: small
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
-    alb.ingress.kubernetes.io/ssl-redirect: "443"
-    # Certificate Manager certificate number for the domain; set before the first apply.
-    alb.ingress.kubernetes.io/ssl-certificate-no: "REPLACE_WITH_CERTIFICATE_NO"
+    # 1단계: HTTP(80)로 먼저 확인. 도메인과 Certificate Manager 인증서가 생기면 아래 주석을 풀어 HTTPS로 전환한다.
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    # alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    # alb.ingress.kubernetes.io/ssl-redirect: "443"
+    # alb.ingress.kubernetes.io/ssl-certificate-no: "<인증서 번호>"
     # Both target groups answer 200 here: the API directly, the SPA via its index.html fallback.
     alb.ingress.kubernetes.io/healthcheck-path: /api/health/live
 spec:
