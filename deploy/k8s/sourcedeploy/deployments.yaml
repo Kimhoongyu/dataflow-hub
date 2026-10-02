@@ -1,0 +1,202 @@
+# NCP SourceDeploy가 NKS에 적용하는 매니페스트 (Deployment만).
+# 새 이미지가 나올 때마다 바뀌는 것만 담는다. Namespace, ConfigMap, Secret, Service, Ingress,
+# 마이그레이션 Job은 처음 한 번 kubectl apply -k deploy/k8s/overlays/ncp로 만든다.
+# Secret 값은 여기 없고 이름(dataflow-secrets)만 참조한다.
+# 다시 만들기: kubectl kustomize deploy/k8s/overlays/ncp 결과에서 kind: Deployment만 남긴다.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/part-of: dataflow-hub
+  name: api
+  namespace: dataflow
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8000"
+        prometheus.io/scrape: "true"
+      labels:
+        app.kubernetes.io/name: api
+    spec:
+      containers:
+      - envFrom:
+        - configMapRef:
+            name: dataflow-config
+        - secretRef:
+            name: dataflow-secrets
+        image: khg-test.kr.ncr.ntruss.com/dataflow-hub-api:latest
+        livenessProbe:
+          failureThreshold: 4
+          httpGet:
+            path: /api/health/live
+            port: http
+          periodSeconds: 15
+          timeoutSeconds: 3
+        name: api
+        ports:
+        - containerPort: 8000
+          name: http
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /api/health/ready
+            port: http
+          periodSeconds: 10
+          timeoutSeconds: 10
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      imagePullSecrets:
+      - name: ncr
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - emptyDir:
+          sizeLimit: 64Mi
+        name: tmp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/part-of: dataflow-hub
+  name: frontend
+  namespace: dataflow
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: frontend
+    spec:
+      containers:
+      - image: khg-test.kr.ncr.ntruss.com/dataflow-hub-frontend:latest
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 20
+        name: frontend
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          periodSeconds: 10
+        resources:
+          limits:
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 32Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp
+      imagePullSecrets:
+      - name: ncr
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - emptyDir:
+          sizeLimit: 32Mi
+        name: tmp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/part-of: dataflow-hub
+  name: worker
+  namespace: dataflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9100"
+        prometheus.io/scrape: "true"
+      labels:
+        app.kubernetes.io/name: worker
+    spec:
+      containers:
+      - command:
+        - python
+        - -m
+        - worker.main
+        envFrom:
+        - configMapRef:
+            name: dataflow-config
+        - secretRef:
+            name: dataflow-secrets
+        image: khg-test.kr.ncr.ntruss.com/dataflow-hub-api:latest
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: metrics
+          periodSeconds: 20
+          timeoutSeconds: 3
+        name: worker
+        ports:
+        - containerPort: 9100
+          name: metrics
+        resources:
+          limits:
+            memory: 768Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      imagePullSecrets:
+      - name: ncr
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
