@@ -19,7 +19,7 @@ function Login({ onLogin }: { onLogin: (user: User) => void }) {
   return <main className="login-page">
     <div className="login-brand"><p className="eyebrow">DATAFLOW HUB</p><h1>데이터 작업의 시작,<br />하나의 워크스페이스에서.</h1><p>조직별 프로젝트를 관리하고 데이터 처리 서비스를 준비하세요.</p></div>
     <form className="login-card" onSubmit={submit}>
-      <h2>로그인</h2><p className="subtext">소속 조직의 프로젝트에 접속합니다.</p>
+      <h2>로그인</h2><p className="subtext">소속 조직의 프로젝트에 접속합니다. (자동 배포 테스트)</p>
       <label>이메일<input type="email" autoComplete="username" required maxLength={254} value={email} onChange={e => setEmail(e.target.value)} /></label>
       <label>비밀번호<input type="password" autoComplete="current-password" required maxLength={256} value={password} onChange={e => setPassword(e.target.value)} /></label>
       {error && <p role="alert" className="error">{error}</p>}
