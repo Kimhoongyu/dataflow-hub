@@ -294,16 +294,41 @@ docker compose --profile monitoring up -d
 - **config:** Compose 설정을 검증하고, promtool로 Prometheus 설정과 알림 규칙을 검사합니다.
 - **config** 단계에서는 Kubernetes 매니페스트(local, ncp overlay)를 렌더링하고 kubeconform으로 스키마도 검사합니다.
 - **terraform:** `fmt -check`와 `validate`를 실행합니다. 자격 증명은 필요 없습니다.
-- **images:** API·Frontend 배포용 이미지를 빌드합니다. NCP Container Registry push는 배포 단계에서 추가합니다.
+- **images:** API·Frontend 배포용 이미지가 빌드되는지 확인합니다. Registry push는 아래 CD가 맡습니다.
 
 Frontend 이미지는 Dockerfile target이 두 개입니다.
 - `dev`: Vite 개발 서버. Compose가 사용합니다.
 - `runtime`: 빌드된 정적 파일을 nginx(비 root, 8080)로 제공합니다. 배포용입니다.
 
+두 Dockerfile 모두 `runtime`이 마지막 단계라서 target을 지정하지 않는 빌드도 배포용 이미지를 만듭니다.
+
+## CD (NCP Developer Tools)
+
+검사는 GitHub Actions, 이미지 빌드와 배포는 NCP 서비스가 맡습니다.
+코드 원본은 GitHub이고, SourceCommit은 복사본입니다. 로컬 저장소의 push 주소를 두 개 두어 `git push` 한 번에 함께 갱신합니다.
+
+```
+git push ─┬─▶ GitHub          ─▶ GitHub Actions (CI)
+          └─▶ SourceCommit    ─▶ SourcePipeline (Push 트리거, main)
+                                   SourceBuild frontend ─▶ SourceBuild api ─▶ Container Registry
+                                                                              (태그 1.0.<빌드 번호> + latest)
+```
+
+```powershell
+git remote set-url --add --push origin https://github.com/<계정>/dataflow-hub.git
+git remote set-url --add --push origin https://devtools.ncloud.com/<번호>/<저장소>.git
+```
+
+- SourceCommit의 Git 접속은 서브 계정으로 합니다(메인 계정은 사용하지 않음).
+- SourceBuild는 `backend/Dockerfile`, `frontend/Dockerfile`을 각각 빌드합니다. 빌드 결과물·빌드 환경 이미지는 저장하지 않습니다.
+- 버전 태그는 빌드마다 바뀌어 이전 이미지로 되돌릴 수 있고, `latest`는 최신 빌드를 가리킵니다.
+- 다음: SourceDeploy로 NKS 배포 단계를 파이프라인 끝에 붙입니다.
+  DB 비밀번호 같은 Secret은 파이프라인에 태우지 않고 클러스터에 미리 넣어 둡니다.
+
 ## 다음 단계
 
-1. Terraform 마무리: Cloud DB for PostgreSQL, Object Storage 버킷, 원격 state, Kubernetes 설정 파일 연결
-2. CI에서 Container Registry push 후 NKS 배포(CD)
+1. SourceDeploy로 NKS 배포를 파이프라인에 연결 (push 한 번으로 빌드부터 배포까지)
+2. 도메인과 HTTPS
 
 | 구성 요소 | 로컬 (Compose) | NCP |
 | --- | --- | --- |
